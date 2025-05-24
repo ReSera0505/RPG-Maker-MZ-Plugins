@@ -1,0 +1,1474 @@
+/*:
+ * @target MZ
+ * @plugindesc RSTH_IH: インベントリ＋ホットバー UI プラグイン ver1.0.0
+ * @author ReSera_りせら
+ *
+ * @help
+ * このプラグインはマップ画面にインベントリとホットバーUIを追加します。
+ * プレイヤーの持ち物やショートカットバー（ホットバー）を視覚的に管理できます。
+ *
+ * ▼ 主な機能
+ * - マウスによるドラッグ＆ドロップでインベントリやホットバー間のアイテム移動が可能
+ * - Shiftキー押下によるアイテムの一括移動
+ * - ダブルクリックでアイテムを使用（道具、武器、ブロック、装備に対応）
+ * - スタック（所持数の管理）対応
+ * - ホットバーは数字キー（1～0）で選択・使用可能
+ * - ブロックの設置やツールによる破壊にも対応
+ * - "RSTH_Survival.js", "RSTH_EquipmentUI.js" との連携必須
+ *
+ * ▼ 注意事項
+ * - 通常の "gainItem" ではインベントリに追加されません。
+ *   必ず "RSTH_IH.gainItemToInventoryThenHotbar()"を使用してください。
+ * 　（今後改善予定）
+ * 　例）NPCのイベントのスクリプトに追加する場合
+ * 　window.RSTH_IH.gainItemToInventoryThenHotbar($dataItems[2], 10);
+ * 　window.RSTH_IH.gainItemToInventoryThenHotbar($dataWeapons[20], 1);
+ * 
+ * - 入手したアイテムはインベントリが満杯になるとホットバーへ格納されます。
+ * 　ホットバーも満杯の場合にアイテムを入手するとあふれたものは削除されます。
+ * 　（今後改善予定）
+ * 
+ * - 使用後のアイテムは自動的に1個減少し、0になればスロットが空になります。
+ * - 通常のアイテム所持数と連動せず、内部的に "_customInventoryItems", "_customHotbarItems" に保持されます。
+ * 
+ * - RSTH_EquipmentUI.jsとRSTH_Survival.jsよりも**上に**配置してください。
+ * 
+ * ▼ 使用方法
+ * プロジェクトの「js/plugins」フォルダにこのファイルを追加し、
+ * プラグインマネージャーから有効にしてください。
+ * マップ画面で "E" キーを押すとインベントリが開閉します。
+ *
+ * ▼ 注意事項
+ * - RSTH_EquipmentUI.jsとRSTH_Survival.jsの前に配置してください。
+ * - グローバル汚染を避けるため、window.RSTH_IH 名前空間を使用しています。
+ *
+ * ▼ ライセンス
+ * このプラグインは MITライセンス の下で公開されています。
+ * 
+ * @param HotbarPosition
+ * @text ホットバーの画面配置
+ * @type select
+ * @option topleft
+ * @option top
+ * @option topright
+ * @option bottomleft
+ * @option bottom
+ * @option bottomright
+ * @default bottomright
+ * @desc ホットバーの画面上の位置を指定します。
+ * 
+ * @param HotbarSlotSize
+ * @type number
+ * @default 32
+ *
+ * @param HotbarPrevKey
+ * @type string
+ * @default [
+ *
+ * @param HotbarNextKey
+ * @type string
+ * @default ]
+ *
+ * @param InventoryCols
+ * @type number
+ * @default 10
+ *
+ * @param InventoryRows
+ * @type number
+ * @default 6
+ *
+ * @param InventorySlotSize
+ * @type number
+ * @default 32
+ *
+ * @param StackSize
+ * @type number
+ * @default 99
+ *  
+ */
+
+(() => {
+    "use strict";
+
+    const p = PluginManager.parameters("RSTH_IH");
+
+    const StackSize = Number(p["StackSize"] || 99);
+
+    //ホットバー関連の宣言
+    const HotbarSlotSize = Number(p["HotbarSlotSize"] || 32);
+    const HotbarPrevKey = p["HotbarPrevKey"] || "[";
+    const HotbarNextKey = p["HotbarNextKey"] || "]";
+    const HotbarSlotCount = 10;
+    const Hotbarmargin = 8;
+    const Hotbarpadding = 12;
+    const HotbarcontentWidth = HotbarSlotCount * HotbarSlotSize + (HotbarSlotCount - 1) * Hotbarmargin;
+    const Hotbarwidth = HotbarcontentWidth + Hotbarpadding * 2;
+    const Hotbarheight = HotbarSlotSize + Hotbarpadding * 2;
+    const HotbarPosition = p["HotbarPosition"] || "bottomright";
+
+    //インベントリ関連の宣言
+    const InventorySlotSize = Number(p["InventorySlotSize"] || 32);
+    const InventoryCols = Number(p["InventoryCols"] || 10);
+    const InventoryRows = Number(p["InventoryRows"] || 6);
+    const Inventorymargin = 8;
+    const Inventorypadding = 12;
+    const InventorycontentWidth = InventoryCols * InventorySlotSize + (InventoryCols - 1) * Inventorymargin;
+    const InventorycontentHeight = InventoryRows * InventorySlotSize + (InventoryRows - 1) * Inventorymargin;
+    const Inventorywidth = InventorycontentWidth + Inventorypadding * 2;
+    const Inventoryheight = InventorycontentHeight + Inventorypadding * 2;
+
+    window.RSTH_IH = window.RSTH_IH || {};
+    window.RSTH_IH.__draggingItem = null;
+    window.RSTH_IH.__draggingFrom = null;
+    window.RSTH_IH.__draggingIndex = null;
+
+    let __hotbarKeyListenerAdded = false;
+
+
+    // ▼ 共通関数：スロット情報 → 実データ
+    function getGameItem(item) {
+        if (item.type === "item") return $dataItems[item.id];
+        if (item.type === "weapon") return $dataWeapons[item.id];
+        if (item.type === "armor") return $dataArmors[item.id];
+        if (item.type === "block") return item;
+        if (item.type === "tool") return $dataWeapons[item.id];
+        return null;
+    }
+
+    // アイテム種別判定
+    function getItemType(item) {
+        if (DataManager.isItem(item)) {
+            const tileId = Number(item.meta?.tileId);
+            if (!isNaN(tileId)) {
+                console.log("種別: block と判定されました", item.name, "tileId:", tileId);
+                return "block";
+            }
+            return "item";
+        }
+        if (DataManager.isWeapon(item)) {
+            if (item.meta?.tool !== undefined) {
+                console.log("種別: tool と判定されました", item.name);
+                return "tool"; // toolタグがあればツールとして扱う
+            }
+            return "weapon";
+        }
+        if (DataManager.isArmor(item)) return "armor";
+        return "unknown";
+    }
+
+    // 武器がツールか否か
+    function isToolWeapon(item) {
+        return DataManager.isWeapon(item) && item.meta.tool !== undefined;
+    }
+
+    // ツールがブロックに対して有効であるか否か
+    function getEffectiveBlocks(item) {
+        try {
+            return JSON.parse(item.meta.blockEffective || "[]");
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // インベントリに外部からアイテムを追加する場合
+    window.RSTH_IH.gainItemToInventory = function (item, amount = 1) {
+        if (!item || amount <= 0) return 0;
+
+        const inv = $gameSystem._customInventoryItems || [];
+        const type = getItemType(item);
+        let remaining = amount;
+
+        for (let i = 0; i < inv.length; i++) {
+            const slot = inv[i];
+            if (slot && slot.id === item.id && slot.type === type && slot.count < StackSize) {
+                const space = StackSize - slot.count;
+                const toAdd = Math.min(space, remaining);
+                slot.count += toAdd;
+                remaining -= toAdd;
+                if (remaining <= 0) break;
+            }
+        }
+
+        const maxSlots = InventoryCols * InventoryRows;
+        for (let i = 0; i < maxSlots && remaining > 0; i++) {
+            if (!inv[i]) {
+                const toAdd = Math.min(StackSize, remaining);
+
+                const tileId = Number(item.meta.tileId || 0);
+                const blockName = String(item.meta.blockName || "");
+
+                inv[i] = {
+                    id: item.id,
+                    name: item.name,
+                    iconIndex: item.iconIndex,
+                    tileset: "IconSet",
+                    tileIndex: [item.iconIndex],
+                    type,
+                    tileId,
+                    blockName,
+                    count: toAdd
+                };
+
+                remaining -= toAdd;
+            }
+        }
+
+        $gameSystem._customInventoryItems = inv;
+        return remaining;
+    }
+
+    // ホットバーに外部からアイテムを追加する場合
+    window.RSTH_IH.gainItemToHotbar = function (item, amount = 1) {
+        if (!item || amount <= 0) return 0;
+
+        const hotbar = SceneManager._scene?._hotbarWindow?.items || [];
+        const type = getItemType(item);
+        let remaining = amount;
+
+        for (let i = 0; i < hotbar.length; i++) {
+            const slot = hotbar[i];
+            if (slot && slot.id === item.id && slot.type === type && slot.count < StackSize) {
+                const space = StackSize - slot.count;
+                const toAdd = Math.min(space, remaining);
+                slot.count += toAdd;
+                remaining -= toAdd;
+                if (remaining <= 0) break;
+            }
+        }
+
+        for (let i = 0; i < hotbar.length && remaining > 0; i++) {
+            if (!hotbar[i]) {
+                const toAdd = Math.min(StackSize, remaining);
+
+                const tileId = Number(item.meta?.tileId || 0);
+                const blockName = String(item.meta?.blockName || "");
+
+                hotbar[i] = {
+                    id: item.id,
+                    name: item.name,
+                    iconIndex: item.iconIndex,
+                    tileset: "IconSet",
+                    tileIndex: [item.iconIndex],
+                    type,
+                    tileId,
+                    blockName,
+                    count: toAdd
+                };
+
+                remaining -= toAdd;
+            }
+        }
+
+        $gameSystem._customHotbarItems = hotbar;
+
+        // 明示的にホットバーをリフレッシュ
+        const win = SceneManager._scene?._hotbarWindow;
+        if (win) win.setItems(hotbar);
+
+        return remaining;
+    }
+
+    // 外部からアイテム入手時、インベントリ満杯の場合、ホットバーへ格納
+    window.RSTH_IH.gainItemToInventoryThenHotbar = function (item, amount = 1) {
+        let remaining = window.RSTH_IH.gainItemToInventory(item, amount);
+        let addedToInventory = remaining < amount;
+
+        remaining = window.RSTH_IH.gainItemToHotbar(item, remaining);
+        let addedToHotbar = remaining < (amount - (addedToInventory ? 0 : amount));
+
+        if (remaining > 0) {
+            console.warn("あふれて破棄:", item.name, "x", remaining);
+        }
+
+        if (SceneManager._scene?.updateInventoryAndHotbar) {
+            SceneManager._scene.updateInventoryAndHotbar();
+        }
+
+        // 成功していたら true を返す
+        return (amount - remaining) > 0;
+    }
+
+    // インベントリのアイテムを外部から削除する場合
+    window.RSTH_IH.loseItemFromInventory = function (item, amount = 1) {
+        if (!item || amount <= 0) return false;
+
+        const inv = $gameSystem._customInventoryItems || [];
+        const type = (() => {
+            if (DataManager.isItem(item)) return "item";
+            if (DataManager.isWeapon(item)) return "weapon";
+            if (DataManager.isArmor(item)) return "armor";
+            return "unknown";
+        })();
+
+        let remaining = amount;
+
+        for (let i = 0; i < inv.length; i++) {
+            const slot = inv[i];
+            if (slot && slot.id === item.id && slot.type === type) {
+                const toRemove = Math.min(slot.count, remaining);
+                slot.count -= toRemove;
+                remaining -= toRemove;
+
+                if (slot.count <= 0) {
+                    inv.splice(i, 1);
+                    i--; // 削除したので index 調整
+                }
+
+                if (remaining <= 0) break;
+            }
+        }
+
+        // 書き戻し
+        $gameSystem._customInventoryItems = inv;
+
+        if (SceneManager._scene?.updateInventoryAndHotbar) {
+            SceneManager._scene.updateInventoryAndHotbar();
+        }
+
+        if (remaining > 0) {
+            console.warn("インベントリに十分な個数がないため一部しか消費できなかった:", item.name, "x", amount - remaining);
+        }
+
+        return true;
+    }
+
+    // ホットバーの位置の設定
+    function calculateHotbarPosition() {
+        const gw = Graphics.boxWidth;
+        const gh = Graphics.boxHeight;
+
+        let x = 0;
+        let y = 0;
+
+        switch (HotbarPosition) {
+            case "topleft":
+                x = 20;
+                y = 20;
+                break;
+            case "top":
+                x = (gw - Hotbarwidth) / 2;
+                y = 20;
+                break;
+            case "topright":
+                x = gw - Hotbarwidth - 20;
+                y = 20;
+                break;
+            case "bottomleft":
+                x = 20;
+                y = gh - Hotbarheight - 20;
+                break;
+            case "bottom":
+                x = (gw - Hotbarwidth) / 2;
+                y = gh - Hotbarheight - 20;
+                break;
+            case "bottomright":
+                x = gw - Hotbarwidth - 20;
+                y = gh - Hotbarheight - 20;
+                break;
+        }
+
+        return { x, y };
+    }
+
+    // インベントリの位置を設定
+    function calculateInventoryPosition(hotbarX, hotbarY) {
+        const gw = Graphics.boxWidth;
+        const gh = Graphics.boxHeight;
+
+        const below = HotbarPosition.startsWith("top"); // 上にあるホットバーなら下に表示
+        const invX = hotbarX + (Hotbarwidth - Inventorywidth) / 2;
+        const invY = below
+            ? hotbarY + Hotbarheight + 10
+            : hotbarY - Inventoryheight - 10;
+
+        return {
+            x: Math.max(0, Math.min(invX, gw - Inventorywidth)),
+            y: Math.max(0, Math.min(invY, gh - Inventoryheight))
+        };
+    }
+
+    // ポップアップテキスト表示
+    function updateHoverTextShared(self, items) {
+        if (!self.isOpen?.() || !self.visible) return;
+
+        const popup = SceneManager._scene._hoverTextSprite;
+        if (!popup) return;
+
+        const x = self.canvasToLocalX(TouchInput.x);
+        const y = self.canvasToLocalY(TouchInput.y);
+        const index = self.hitTest(x, y);
+
+        if (index >= 0 && items[index]) {
+            const name = String(items[index].name || "");
+            if (popup._text !== name) {
+                popup.setText(name);
+            }
+            window.RSTH_IH.__popupOwner = self;
+        } else if (window.RSTH_IH.__popupOwner === self) {
+            popup.setText("");
+            window.RSTH_IH.__popupOwner = null;
+        }
+    }
+
+    // ウィンドウの共通リフレッシュ処理
+    function drawItemSlotGrid(self, items, cols, rows, tileSize, margin, selectedIndex = -1) {
+        self.contents.clear();
+
+        const max = cols * rows;
+        if (!Array.isArray(items)) return;
+
+        for (let i = 0; i < max; i++) {
+            const item = items[i];
+            const rect = self.itemRect(i);
+
+            self.contents.paintOpacity = 128;
+            self.contents.fillRect(rect.x, rect.y, rect.width, rect.height, "#222");
+            self.contents.paintOpacity = 255;
+
+            if (item) {
+                const bitmap = ImageManager.loadSystem(item.tileset || "IconSet");
+                const pw = 32, ph = 32;
+                const sx = (item.iconIndex % 16) * pw;
+                const sy = Math.floor(item.iconIndex / 16) * ph;
+                self.contents.blt(bitmap, sx, sy, pw, ph, rect.x, rect.y, rect.width, rect.height);
+
+                const count = item.count || 1;
+                if (count > 1) {
+                    self.contents.fontSize = 18;
+                    self.contents.textColor = "#ffffff";
+                    self.contents.outlineColor = "#000000";
+                    self.contents.outlineWidth = 3;
+                    self.contents.drawText(
+                        count,
+                        rect.x,
+                        rect.y + rect.height - 20,
+                        rect.width - 4,
+                        20,
+                        "right"
+                    );
+                }
+            }
+
+            if (i === selectedIndex) {
+                self.contents.strokeRect(rect.x, rect.y, rect.width, rect.height, "#ffffff", 3);
+            }
+        }
+    }
+
+    // ウィンドウのsetitems共通処理
+    function setItemsSafe(self, items, storageKey = null) {
+        if (!self.items) self.items = [];
+
+        const changed =
+            self.items.length !== items.length ||
+            items.some((item, i) => {
+                const current = self.items[i];
+                return !current || !item || current.id !== item.id || current.count !== item.count;
+            });
+
+        if (!changed) return;
+
+        self.items = items.map(item => item ? { ...item } : null);
+
+        if (storageKey) {
+            $gameSystem[storageKey] = self.items;
+        }
+
+    }
+
+    // ウィンドウのprocessTouch()共通処理
+    function handleSlotTouchShared(self, contextType, itemList, onUseItem) {
+        if (!self.visible || self.openness <= 0) return;
+
+        const x = self.canvasToLocalX(TouchInput.x);
+        const y = self.canvasToLocalY(TouchInput.y);
+        const index = self.hitTest(x, y);
+
+        // スロット選択
+        if (index >= 0 && index !== self.selectedIndex && typeof self.selectSlotByIndex === "function") {
+            self.selectSlotByIndex(index);
+        }
+
+        // ドラッグ開始
+        if (TouchInput.isTriggered() && index >= 0 && itemList[index]) {
+            window.RSTH_IH.__draggingItem = itemList[index];
+            window.RSTH_IH.__draggingFrom = contextType;
+            window.RSTH_IH.__draggingIndex = index;
+        }
+
+        // ダブルクリックで使用
+        if (TouchInput.isReleased() && self.active && self.visible && self.isTouchedInsideFrame()) {
+            const releasedIndex = self.hitTest(x, y);
+            if (releasedIndex >= 0 && itemList[releasedIndex]) {
+                const now = performance.now();
+                const doubleClicked =
+                    self._lastClickIndex === releasedIndex &&
+                    now - (self._lastClickTime || 0) < 300;
+
+                self._lastClickTime = now;
+                self._lastClickIndex = releasedIndex;
+
+                if (doubleClicked) {
+                    console.log("${contextType}：ダブルクリックで使用:", itemList[releasedIndex]);
+                    onUseItem(itemList[releasedIndex], releasedIndex);
+                    self.refresh();
+                }
+            }
+        }
+    }
+
+    // ウィンドウのprocessTouch()のドラッグ終了時の処理
+    function handleInventoryDragDrop(self) {
+        if (!TouchInput.isReleased() || !window.RSTH_IH.__draggingItem) return;
+
+        // ▼ ドラッグ終了
+        if (TouchInput.isReleased() && window.RSTH_IH.__draggingItem) {
+            // ウィンドウが非表示の場合は中断
+            if (!self.visible || !self.active) {
+                return resetDragging();
+            }
+            const index = self.hitTest(
+                self.canvasToLocalX(TouchInput.x),
+                self.canvasToLocalY(TouchInput.y)
+            );
+
+            const from = window.RSTH_IH.__draggingFrom;
+            const fromIndex = window.RSTH_IH.__draggingIndex;
+            const item = window.RSTH_IH.__draggingItem;
+
+            const hotbar = SceneManager._scene._hotbarWindow;
+
+            // インベントリ → ホットバー
+            if (from === "inventory") {
+                const hx = TouchInput.x - hotbar.x - hotbar.padding;
+                const hy = TouchInput.y - hotbar.y - hotbar.padding;
+                const hotbarIndex = hotbar.hitTest(hx, hy);
+                if (hotbarIndex >= 0) {
+                    const shift = Input.isPressed("shift");
+                    const amount = shift ? (item.count || 1) : 1;
+                    const fromSlot = self.items[fromIndex];
+                    const targetSlot = hotbar.items[hotbarIndex];
+
+                    let moved = 0;
+
+                    // 既に同じアイテムがある → スタック処理
+                    if (targetSlot &&
+                        targetSlot.id === item.id &&
+                        targetSlot.type === item.type
+                    ) {
+                        const space = StackSize - targetSlot.count;
+                        const toAdd = Math.min(space, amount);
+                        targetSlot.count += toAdd;
+                        moved = toAdd;
+                    } else if (!targetSlot) {
+                        // 空スロット → 新規セット
+                        const toAdd = Math.min(StackSize, amount);
+                        const newItem = Object.assign({}, item);
+                        newItem.count = toAdd;
+                        hotbar.items[hotbarIndex] = newItem;
+                        moved = toAdd;
+                    } else {
+                        return resetDragging(); // 異なるアイテムなので拒否
+                    }
+
+                    // 実際に移動できた分だけ元スロットから減らす
+                    if (moved > 0) {
+                        if (fromSlot.count > moved) {
+                            fromSlot.count -= moved;
+                        } else {
+                            self.items[fromIndex] = null;
+                        }
+
+                        $gameSystem._customInventoryItems = self.items;
+                        self.refresh();
+                        hotbar.refresh();
+                    }
+
+                    return resetDragging();
+                }
+
+
+                // インベントリ内の同アイテムスタックまたは入れ替え
+                if (index >= 0 && index !== fromIndex) {
+                    const fromSlot = self.items[fromIndex];
+                    const toSlot = self.items[index];
+
+                    // 同じアイテム・同じタイプ → スタック処理
+                    if (toSlot && fromSlot &&
+                        fromSlot.id === toSlot.id &&
+                        fromSlot.type === toSlot.type
+                    ) {
+                        const maxStack = StackSize;
+                        const total = fromSlot.count + toSlot.count;
+
+                        if (total <= maxStack) {
+                            toSlot.count = total;
+                            self.items[fromIndex] = null;
+                        } else {
+                            toSlot.count = maxStack;
+                            fromSlot.count = total - maxStack;
+                        }
+                    } else {
+                        // 異なるアイテムなら単純に入れ替え
+                        const tmp = self.items[index];
+                        self.items[index] = self.items[fromIndex];
+                        self.items[fromIndex] = tmp;
+                    }
+
+                    $gameSystem._customInventoryItems = self.items;
+                    self.refresh();
+                    return resetDragging();
+                }
+
+            }
+
+            // ホットバー → インベントリ
+            if (from === "hotbar" && index >= 0) {
+                const slot = hotbar?.items[fromIndex];
+                if (!slot) return resetDragging();
+
+                const shift = Input.isPressed("shift");
+                const totalCount = slot.count || 1;
+                const amount = shift ? totalCount : 1;
+                let moved = 0;
+
+                const existingSlot = self.items[index];
+                if (existingSlot &&
+                    existingSlot.id === slot.id &&
+                    existingSlot.type === slot.type &&
+                    existingSlot.count < StackSize
+                ) {
+                    const space = StackSize - existingSlot.count;
+                    const toAdd = Math.min(space, amount);
+                    existingSlot.count += toAdd;
+                    moved += toAdd;
+                } else if (!existingSlot) {
+                    const toAdd = Math.min(StackSize, amount);
+                    self.items[index] = {
+                        id: slot.id,
+                        name: slot.name,
+                        iconIndex: slot.iconIndex,
+                        tileset: slot.tileset,
+                        tileIndex: slot.tileIndex,
+                        type: slot.type,
+                        tileId: slot.tileId ?? 0,
+                        blockName: slot.blockName ?? "",
+                        count: toAdd
+                    };
+                    moved += toAdd;
+                } else {
+                    return resetDragging(); // 違うアイテム
+                }
+
+                // 移動できた分だけホットバーから減らす
+                if (totalCount > moved) {
+                    slot.count -= moved;
+                } else {
+                    hotbar.items[fromIndex] = null;
+                }
+
+                $gameSystem._customInventoryItems = self.items;
+                hotbar.refresh();
+                self.refresh();
+                return resetDragging();
+            }
+
+            // ホットバー → ホットバー
+            if (from === "hotbar") {
+                const hotbar = SceneManager._scene._hotbarWindow;
+                const hx = TouchInput.x - hotbar.x - hotbar.padding;
+                const hy = TouchInput.y - hotbar.y - hotbar.padding;
+                const dropIndex = hotbar.hitTest(hx, hy);
+
+                if (dropIndex >= 0) {
+                    const fromSlot = hotbar.items[fromIndex];
+                    const toSlot = hotbar.items[dropIndex];
+
+                    if (dropIndex === fromIndex) return resetDragging();
+
+                    if (toSlot && toSlot.id === fromSlot.id && toSlot.type === fromSlot.type) {
+                        const maxStack = StackSize;
+                        const total = toSlot.count + fromSlot.count;
+
+                        if (total <= maxStack) {
+                            toSlot.count = total;
+                            hotbar.items[fromIndex] = null;
+                        } else {
+                            toSlot.count = maxStack;
+                            fromSlot.count = total - maxStack;
+                        }
+                    } else {
+                        hotbar.items[dropIndex] = fromSlot;
+                        hotbar.items[fromIndex] = toSlot;
+                    }
+
+                    hotbar.refresh();
+                    return resetDragging();
+                }
+            }
+
+
+            resetDragging();
+        }
+    }
+
+
+    //=============================================================================================================
+    // ホットバー処理===============================================================================================
+    //=============================================================================================================
+    class Window_Hotbar extends Window_Selectable {
+        constructor(rect) {
+            super(rect);
+            this.slotCount = HotbarSlotCount;
+            this.tileSize = HotbarSlotSize;
+            this.margin = Hotbarmargin;
+            this.selectedIndex = 0;
+            this._lastClickTime = null;
+            this._lastClickIndex = null;
+            this.items = new Array(this.slotCount).fill(null);
+
+            this.refresh();
+            this.setupHotbarKeyListener();
+
+            this._mouseHandlersSet = true;
+        }
+
+        maxItems() {
+            return this.slotCount;
+        }
+
+        maxCols() {
+            return this.slotCount;
+        }
+
+        // 行数を強制設定(1)
+        maxRows() {
+            return 1;
+        }
+
+        maxScrollY() {
+            return 0; // スクロール不可にする
+        }
+
+        itemRect(index) {
+            const totalContentWidth = this.slotCount * this.tileSize + (this.slotCount - 1) * this.margin;
+            const startX = (this.contentsWidth() - totalContentWidth) / 2;
+            const x = startX + index * (this.tileSize + this.margin);
+            const y = 0;
+            return new Rectangle(x, y, this.tileSize, this.tileSize);
+        }
+
+        refresh() {
+            drawItemSlotGrid(this, this.items, this.slotCount, 1, this.tileSize, this.margin, this.selectedIndex);
+            if (SceneManager._scene && SceneManager._scene._hotbarWindow) {
+                $gameSystem._customHotbarItems = [...this.items];
+            }
+        }
+
+        canvasToLocal(event) {
+            const bounds = event.target.getBoundingClientRect();
+            return {
+                x: event.clientX - bounds.left,
+                y: event.clientY - bounds.top
+            };
+        }
+
+        hitTest(x, y) {
+            for (let i = 0; i < this.maxItems(); i++) {
+                const rect = this.itemRect(i);
+                if (x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        select(index) { }
+
+        selectSlotByIndex(index) {
+            if (index >= 0 && index < this.slotCount) {
+                this.selectedIndex = index;
+                this.refresh();
+            }
+        }
+
+        selectNextSlot() {
+            this.selectedIndex = (this.selectedIndex + 1) % this.slotCount;
+            this.refresh();
+        }
+
+        selectPreviousSlot() {
+            this.selectedIndex = (this.selectedIndex - 1 + this.slotCount) % this.slotCount;
+            this.refresh();
+        }
+
+        setupHotbarKeyListener() {
+            if (__hotbarKeyListenerAdded) return;
+            __hotbarKeyListenerAdded = true;
+
+            document.addEventListener("keydown", (event) => {
+                const scene = SceneManager._scene;
+                if (!(scene && scene._hotbarWindow)) return;
+
+                const key = event.key;
+                const hotbarWindow = scene._hotbarWindow;
+
+                if (key >= "1" && key <= "9") {
+                    const index = Number(key) - 1;
+                    hotbarWindow.selectSlotByIndex(index);
+                    const item = hotbarWindow.items[index];
+                    if (item) useInventoryItem(item, "hotbar", index);
+                } else if (key === "0") {
+                    const index = 9;
+                    hotbarWindow.selectSlotByIndex(index);
+                    const item = hotbarWindow.items[index];
+                    if (item) useInventoryItem(item, "hotbar", index);
+                } else if (key === HotbarPrevKey) {
+                    hotbarWindow.selectPreviousSlot();
+                } else if (key === HotbarNextKey) {
+                    hotbarWindow.selectNextSlot();
+                }
+            });
+        }
+
+        processTouch() {
+            super.processTouch();
+
+            handleSlotTouchShared(this, "hotbar", this.items, (item, index) => {
+                useInventoryItem(item, "hotbar", index);
+            });
+        }
+
+
+        canvasToLocalX(globalX) {
+            return globalX - this.x - this.padding;
+        }
+
+        canvasToLocalY(globalY) {
+            return globalY - this.y - this.padding;
+        }
+
+        setItems(items) {
+            setItemsSafe(this, items, "_customHotbarItems");
+            this.refresh();
+        }
+
+        update() {
+            Window_Selectable.prototype.update.call(this);
+            this.updateHoverText();
+        }
+
+
+        updateHoverText() {
+            updateHoverTextShared(this, this.items);
+        }
+    }
+
+
+    //=============================================================================================================
+    // インベントリ処理===============================================================================================
+    //=============================================================================================================
+    // オリジナルのmoveByInputを保存
+    if (!Game_Player.prototype._originalMoveByInput) {
+        Game_Player.prototype._originalMoveByInput = Game_Player.prototype.moveByInput;
+    }
+
+    // インベントリウィンドウクラス
+    class Window_Inventory extends Window_Selectable {
+        // コンストラクタ内でパディングを定義
+        constructor(rect) {
+            super(rect);
+            this.items = [];
+            this.tileSize = InventorySlotSize;
+            this.margin = Inventorymargin;  // アイテム間のマージン
+            this._lastClickTime = null;
+            this._lastClickIndex = null;
+            this.hoverCache = new Array(this.maxItems()).fill(null);
+
+            for (let i = 0; i < this.items.length; i++) {
+                this.hoverCache[i] = this.items[i];
+            }
+
+            this.refresh();
+
+            this._mouseHandlersSet = true;
+            this.select(-1); // 選択を無効化（カーソル非表示）
+
+        }
+
+        // アイテムの数を固定
+        maxItems() {
+            const maxItemsSize = InventoryCols * InventoryRows;
+            return maxItemsSize;
+        }
+
+        // 列数を強制設定（9列）
+        maxCols() {
+            return InventoryCols;
+        }
+
+        // 行数を強制設定（4行）
+        maxRows() {
+            return InventoryRows;
+        }
+
+        maxScrollY() {
+            return 0; // スクロール不可にする
+        }
+
+        // アイテムの位置計算
+        itemRect(index) {
+            const col = index % this.maxCols();
+            const row = Math.floor(index / this.maxCols());
+            const totalContentWidth = this.maxCols() * this.tileSize + (this.maxCols() - 1) * this.margin;
+            const startX = (this.contentsWidth() - totalContentWidth) / 2;
+            const x = startX + col * (this.tileSize + this.margin);
+            const y = row * (this.tileSize + this.margin);
+            return new Rectangle(x, y, this.tileSize, this.tileSize);
+        }
+
+
+        // リフレッシュ
+        refresh() {
+            this.items = $gameSystem._customInventoryItems || [];
+            drawItemSlotGrid(this, this.items, InventoryCols, InventoryRows, this.tileSize, this.margin, this.selectedIndex);
+            this.hoverCache = [...this.items];
+        }
+
+        // 座標補正
+        canvasToLocal(event) {
+            const bounds = event.target.getBoundingClientRect();
+            return {
+                x: event.clientX - bounds.left,
+                y: event.clientY - bounds.top
+            };
+        }
+
+        hitTest(x, y) {
+            for (let i = 0; i < this.maxItems(); i++) {
+                const rect = this.itemRect(i);
+                if (x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        select(index) {
+            this.selectedIndex = index;
+
+            //  抑制されているときは再描画だけ、使用処理は走らせない
+            if (!this._suppressUse) {
+                this.refresh();
+            }
+        }
+
+        selectSlotByIndex(index) {
+            if (index >= 0 && index < this.maxItems()) {
+                this.selectedIndex = index;
+                this.refresh();
+            }
+        }
+
+        processTouch() {
+            if (!this.visible || this.openness <= 0) return;
+            super.processTouch();
+
+            handleSlotTouchShared(this, "inventory", this.items, (item, index) => {
+                useInventoryItem(item, "inventory", index);
+            });
+
+            handleInventoryDragDrop(this);
+        }
+
+        processCursorMove() { }
+
+        canvasToLocalX(globalX) {
+            return globalX - this.x - this.padding;
+        }
+
+        canvasToLocalY(globalY) {
+            return globalY - this.y - this.padding;
+        }
+
+        setItems(items) {
+            setItemsSafe(this, items, "_customInventoryItems");
+            this.refresh();
+        }
+
+        update() {
+            Window_Selectable.prototype.update.call(this);
+            this.updateHoverText();
+        }
+
+        updateHoverText() {
+            updateHoverTextShared(this, this.items);
+        }
+    }
+
+    function resetDragging() {
+        window.RSTH_IH.__draggingItem = null;
+        window.RSTH_IH.__draggingFrom = null;
+        window.RSTH_IH.__draggingIndex = null;
+    }
+
+
+    // キー入力でインベントリの開閉
+    document.addEventListener("keydown", (event) => {
+        const scene = SceneManager._scene;
+
+        // シーンとインベントリウィンドウの存在確認
+        if (!(scene instanceof Scene_Map) || !scene._inventoryWindow) return;
+
+        const inventoryWindow = scene._inventoryWindow;
+
+        if (event.key === "e" || event.key === "E") {
+            if (inventoryWindow.visible) {
+                inventoryWindow.hide();
+
+                if (window.RSTH_IH.__popupOwner === inventoryWindow) {
+                    const popup = SceneManager._scene._hoverTextSprite;
+                    if (popup) {
+                        popup.setText("");
+                    }
+                    window.RSTH_IH.__popupOwner = null;
+                }
+            } else {
+                inventoryWindow.show();
+
+                inventoryWindow.select(0);
+                inventoryWindow.activate();
+                inventoryWindow.refresh(); // ウィンドウ表示時にリフレッシュ
+            }
+        }
+    });
+
+    Window_Inventory.prototype.hide = function () {
+        Window_Selectable.prototype.hide.call(this);
+
+        if (window.RSTH_IH.__popupOwner === this) {
+            const popup = SceneManager._scene._hoverTextSprite;
+            if (popup) popup.setText("");
+            window.RSTH_IH.__popupOwner = null;
+        }
+    };
+
+    window.RSTH_IH.__popupOwner = null;
+
+    //=============================================================================================================
+    // ウィンドウ生成処理等===============================================================================================
+    //=============================================================================================================
+    const _Scene_Map_createAllWindows = Scene_Map.prototype.createAllWindows;
+    Scene_Map.prototype.createAllWindows = function () {
+        _Scene_Map_createAllWindows.call(this);
+
+        const hotbarPos = calculateHotbarPosition();
+        const invPos = calculateInventoryPosition(hotbarPos.x, hotbarPos.y);
+
+        // ホットバー
+        if (typeof Window_Hotbar !== "undefined" && !this._hotbarWindow) {
+            const rect = new Rectangle(hotbarPos.x, hotbarPos.y, Hotbarwidth, Hotbarheight);
+            this._hotbarWindow = new Window_Hotbar(rect);
+            this.addWindow(this._hotbarWindow);
+            this._hotbarWindow.activate();
+        }
+
+        // インベントリ
+        if (typeof Window_Inventory !== "undefined" && !this._inventoryWindow) {
+            const rect = new Rectangle(invPos.x, invPos.y, Inventorywidth, Inventoryheight);
+            this._inventoryWindow = new Window_Inventory(rect);
+            this.addWindow(this._inventoryWindow);
+            this._inventoryWindow.hide();
+            this._inventoryWindow.deactivate();
+        }
+
+        // プレイヤーのアイテムとホットバー状態を復元
+        this._inventoryWindow.refresh();
+
+        if ($gameSystem._customHotbarItems) {
+            this._hotbarWindow.setItems($gameSystem._customHotbarItems);
+        }
+
+        this._hoverTextSprite = new Sprite_PopupText();
+        this.addChild(this._hoverTextSprite);
+
+        // 初回アイテム更新
+        this.updateInventoryAndHotbar();
+    };
+
+    Scene_Map.prototype.updateInventoryAndHotbar = function () {
+        if (window.RSTH_IH.__draggingItem) return;
+
+        const inv = this._inventoryWindow;
+        const hotbar = this._hotbarWindow;
+
+        const inventoryItems = $gameSystem._customInventoryItems || [];
+        const hotbarItems = $gameSystem._customHotbarItems || [];
+
+        inv.setItems(inventoryItems);
+        hotbar.setItems(hotbarItems);
+    };
+
+
+    const _Game_Party_gainItem = Game_Party.prototype.gainItem;
+    Game_Party.prototype.gainItem = function (item, amount, includeEquip) {
+        _Game_Party_gainItem.call(this, item, amount, includeEquip);
+        if (SceneManager._scene instanceof Scene_Map) {
+            SceneManager._scene.updateInventoryAndHotbar();
+        }
+    };
+
+    const _Game_System_initialize = Game_System.prototype.initialize;
+    Game_System.prototype.initialize = function () {
+        _Game_System_initialize.call(this);
+        this._customInventoryItems = [];
+        this._customHotbarItems = [];
+    };
+
+    class Sprite_PopupText extends Sprite {
+        constructor() {
+            super(new Bitmap(256, 40));
+            this._text = "";
+            this.visible = false;
+            this.anchor.x = 0;
+            this.anchor.y = 1;
+            this.padding = 6;
+        }
+
+        setText(text) {
+            this._text = typeof text === "string" ? text : String(text || "");
+            this.visible = !!this._text;
+
+            this.bitmap.clear();
+
+            if (this.visible) {
+                this.bitmap.fontSize = 20;
+                this.bitmap.textColor = "#ffffff";
+                this.bitmap.outlineColor = "#000000";
+                this.bitmap.outlineWidth = 3;
+
+                const w = this.bitmap.width - this.padding * 2;
+                const h = this.bitmap.height;
+                this.bitmap.drawText(this._text, this.padding, 0, w, h, "left");
+            }
+        }
+
+        update() {
+            super.update();
+            if (this.visible) {
+                this.x = TouchInput.x + 16;
+                this.y = TouchInput.y;
+            }
+        }
+    }
+
+    Game_Party.prototype._originalGainItem = Game_Party.prototype.gainItem;
+    Game_Party.prototype.gainItem = function (item, amount, includeEquip = false) {
+
+        const maxInventory = InventoryCols * InventoryRows;
+        const maxHotbar = 10;
+
+        // 現在のすべてのアイテム数
+        const totalItems = this.allItems().length;
+
+        // インベントリ・ホットバーにすでに同じアイテムがあるか
+        const alreadyHasItem = this.hasItem(item, includeEquip);
+
+        // アイテム追加の許可条件
+        const canAddNormally = totalItems < maxInventory;
+        const canOverrideBySameItem = alreadyHasItem;
+        if (amount > 0 && !canAddNormally && !canOverrideBySameItem) {
+            console.warn("インベントリ満杯 & 新規アイテム。ホットバーまたは破棄:", item.name, "x", amount);
+
+            if (SceneManager._scene && SceneManager._scene._hotbarWindow) {
+                const hotbar = SceneManager._scene._hotbarWindow.items;
+
+                const type = (() => {
+                    if (DataManager.isItem(item)) return "item";
+                    if (DataManager.isWeapon(item)) return "weapon";
+                    if (DataManager.isArmor(item)) return "armor";
+                    return "unknown";
+                })();
+
+                let remaining = amount;
+
+                // 既存スタックに加算
+                for (let i = 0; i < hotbar.length; i++) {
+                    const slot = hotbar[i];
+                    if (slot && slot.id === item.id && slot.type === type && slot.count < StackSize) {
+                        const space = StackSize - slot.count;
+                        const toAdd = Math.min(space, remaining);
+                        slot.count += toAdd;
+                        remaining -= toAdd;
+                        if (remaining <= 0) break;
+                    }
+                }
+
+                // 空きスロットに追加
+                for (let i = 0; i < hotbar.length && remaining > 0; i++) {
+                    if (!hotbar[i]) {
+                        const toAdd = Math.min(StackSize, remaining);
+                        hotbar[i] = {
+                            id: item.id,
+                            name: item.name,
+                            iconIndex: item.iconIndex,
+                            tileset: "IconSet",
+                            tileIndex: [item.iconIndex],
+                            type,
+                            count: toAdd
+                        };
+                        remaining -= toAdd;
+                    }
+                }
+
+                if (remaining > 0) {
+                    console.warn("ホットバーにも入りきらず破棄:", item.name, "x", remaining);
+                }
+
+                SceneManager._scene._hotbarWindow.setItems(hotbar);
+            }
+
+            return;
+        }
+
+
+        // 通常処理（空きがある or 所持してるアイテムなら許可）
+        this._originalGainItem(item, amount, includeEquip);
+
+        // 明示的に suppress されてなければ updateInventoryAndHotbar を呼ぶ
+        if (!this._suppressInventoryUpdate && SceneManager._scene instanceof Scene_Map) {
+            SceneManager._scene.updateInventoryAndHotbar();
+        }
+    };
+
+
+    // ==============================
+    // ▼ アイテム使用処理
+    // ==============================
+    // プレイヤーの正面タイルの座標を取得する関数
+    function getFrontTileXY() {
+        const player = $gamePlayer;
+        const x = $gameMap.roundXWithDirection(player.x, player.direction());
+        const y = $gameMap.roundYWithDirection(player.y, player.direction());
+        return [x, y];
+    }
+
+
+    function useInventoryItem(item, source = "inventory", slotIndex = null) {
+        const scene = SceneManager._scene;
+        const inv = scene?._inventoryWindow;
+        const hotbar = scene?._hotbarWindow;
+        if (!item) return;
+
+        const dataItem = getGameItem(item);
+        if (!dataItem) return;
+
+        const actor = $gameParty.leader();
+
+        // ▼ ブロックなら設置処理
+        if (item.type === "block") {
+            const tileId = Number(item.tileId || 0);
+            if (tileId > 0) {
+                const [x, y] = getFrontTileXY();
+                if (!window.RSTH_IH.SurvivalBlockManager.get(x, y)) {
+                    console.log("ブロック設置: (${x}, ${y}) → tileId ${tileId}");
+                    window.RSTH_IH.SurvivalBlockManager.place(x, y, tileId);
+                    SoundManager.playOk();
+
+                    // 使用したので1個減らす
+                    const list = (source === "inventory")
+                        ? scene?._inventoryWindow?.items
+                        : scene?._hotbarWindow?.items;
+
+                    const index = slotIndex ?? list?.findIndex(slot => slot && slot.id === item.id && slot.type === item.type);
+                    if (index >= 0) {
+                        const slot = list[index];
+                        if (slot.count > 1) {
+                            slot.count--;
+                        } else {
+                            list[index] = null;
+                        }
+
+                        if (source === "inventory") {
+                            $gameSystem._customInventoryItems = list;
+                            scene?._inventoryWindow?.refresh();
+                        } else if (source === "hotbar") {
+                            $gameSystem._customHotbarItems = list;
+                            scene?._hotbarWindow?.setItems(list);
+                        }
+                    }
+
+                    return;
+                } else {
+                    SoundManager.playBuzzer();
+                    return;
+                }
+            }
+        }
+
+        if (item.type === "tool") {
+            const gameItem = getGameItem(item);
+            if (isToolWeapon(gameItem)) {
+                const [x, y] = getFrontTileXY();
+                const block = window.RSTH_IH.SurvivalBlockManager.get(x, y);
+                if (!block) return;
+
+                const effective = getEffectiveBlocks(gameItem);
+                if (!effective.includes(block.tileId)) return;
+
+                window.RSTH_IH.SurvivalBlockManager.break(x, y);
+                SoundManager.playEnemyCollapse();
+                return;
+            }
+        }
+
+        // 防具なら装備処理（アイテム使用ではなく）
+        if (DataManager.isArmor(dataItem)) {
+            const index = slotIndex;
+            const list = source === "inventory"
+                ? $gameSystem._customInventoryItems
+                : SceneManager._scene._hotbarWindow.items;
+            const slot = list[index];
+
+            if (actor.canEquip(dataItem)) {
+                // 装備タイプに一致するスロットのインデックスを探す
+                const slotId = actor.equipSlots().findIndex(etypeId => etypeId === dataItem.etypeId);
+
+                if (slotId !== -1) {
+                    // そのスロットに装備（上書き）
+                    actor.changeEquip(slotId, dataItem);
+                    SoundManager.playEquip();
+
+                    // アイテムを1個消費
+                    if (slot.count > 1) {
+                        slot.count--;
+                    } else {
+                        list[index] = null;
+                    }
+
+                    // 内部保存を更新
+                    if (source === "inventory") {
+                        $gameSystem._customInventoryItems = list;
+                    } else if (source === "hotbar") {
+                        $gameSystem._customHotbarItems = list;
+                        if (scene._hotbarWindow) {
+                            scene._hotbarWindow.setItems(list);
+                        }
+                    }
+
+                    scene.updateInventoryAndHotbar();
+                    if (scene._equipmentWindow) {
+                        scene._equipmentWindow.refresh();
+                    }
+
+                    return;
+
+                }
+            }
+
+            SoundManager.playBuzzer();
+            return;
+        }
+
+        if (source === "hotbar") {
+            const list = hotbar?.items;
+            const index = slotIndex ?? list?.findIndex(slot => slot && slot.id === item.id && slot.type === item.type);
+            if (index < 0) return;
+
+            const slot = list[index];
+            $gameParty.gainItem(dataItem, 1);
+
+            if (actor.canUse(dataItem)) {
+                const action = new Game_Action(actor);
+                action.setItemObject(dataItem);
+                const targets = action.makeTargets();
+                for (const target of targets) action.apply(target);
+                $gameParty.loseItem(dataItem, 1);
+
+                if (slot.count > 1) {
+                    slot.count--;
+                } else {
+                    list[index] = null;
+                }
+
+                hotbar?.refresh();
+                inv?.refresh();
+            }
+
+            return;
+        }
+
+        if (source === "inventory") {
+            const list = inv?.items;
+            const index = slotIndex ?? list?.findIndex(slot => slot && slot.id === item.id && slot.type === item.type);
+            if (index < 0) return;
+
+            const slot = list[index];
+            $gameParty.gainItem(dataItem, 1);
+
+            if (actor.canUse(dataItem)) {
+                const action = new Game_Action(actor);
+                action.setItemObject(dataItem);
+                const targets = action.makeTargets();
+                for (const target of targets) action.apply(target);
+                $gameParty.loseItem(dataItem, 1);
+
+                if (slot.count > 1) {
+                    slot.count--;
+                } else {
+                    list[index] = null;
+                }
+
+                scene.updateInventoryAndHotbar();
+            }
+
+            return;
+        }
+    }
+
+    const _Game_Player_moveByInput = Game_Player.prototype.moveByInput;
+    Game_Player.prototype.moveByInput = function () {
+        const scene = SceneManager._scene;
+        if (window.RSTH_IH.__draggingItem) return;
+
+        const mouseX = TouchInput.x;
+        const mouseY = TouchInput.y;
+
+        const windows = [
+            scene?._inventoryWindow,
+            scene?._hotbarWindow,
+            scene?._equipmentWindow,
+        ];
+
+        for (const win of windows) {
+            if (!win) continue;
+
+            // ウィンドウが開いていてクリック位置がウィンドウ内にある場合は移動禁止
+            const isOpen = win.visible && win.openness > 0;
+            if (!isOpen) continue;
+
+            const wx = win.x;
+            const wy = win.y;
+            const ww = win.width;
+            const wh = win.height;
+
+            if (mouseX >= wx && mouseX < wx + ww && mouseY >= wy && mouseY < wy + wh) {
+                return; // マウスがウィンドウ上にある → 移動キャンセル
+            }
+        }
+
+        _Game_Player_moveByInput.call(this);
+    };
+
+
+
+    Window.prototype.isTouchedInsideFrame = function () {
+        // 非表示や閉じているウィンドウは当たり判定対象外
+        if (!this.visible || this.openness < 255) return false;
+
+        const x = TouchInput.x - this.x;
+        const y = TouchInput.y - this.y;
+        return x >= 0 && y >= 0 && x < this.width && y < this.height;
+    };
+
+})();
