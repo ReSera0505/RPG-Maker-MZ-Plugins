@@ -1,6 +1,6 @@
 /*:
-* @target MZ
- * @plugindesc RSTH_EquipmentUI: 装備ウィンドウを追加するプラグイン ver1.0.0
+ * @target MZ
+ * @plugindesc RSTH_EquipmentUI: 装備ウィンドウを追加するプラグイン ver1.0.1
  * @author ReSera_りせら
  *
  * @help
@@ -190,28 +190,38 @@
             }
         }
 
+
         onDoubleClick(index) {
             const slotId = EQUIP_INDICES[index];
             const actor = this._actor;
             const item = actor.equips()[slotId];
             if (!item) return;
 
-            // 外す前に移動先確認
-            let remaining = window.RSTH_IH.gainItemToInventory(item, item.count || 1);
-            remaining = window.RSTH_IH.gainItemToHotbar(item, remaining);
+            const dbItem = DataManager.isArmor(item) ? $dataArmors[item.id]
+                : DataManager.isWeapon(item) ? $dataWeapons[item.id]
+                    : DataManager.isItem(item) ? $dataItems[item.id]
+                        : null;
+            if (!dbItem) return;
 
-            if (remaining <= 0) {
-                // 成功したら装備解除
-                actor.changeEquip(slotId, null);
-                SoundManager.playEquip();
-                this.refresh();
-                if (SceneManager._scene?.updateInventoryAndHotbar) {
-                    SceneManager._scene.updateInventoryAndHotbar();
-                }
-            } else {
-                SoundManager.playBuzzer(); // 外せないとき
+            // ✅ インベントリとホットバーに空きがあるか確認
+            if (!window.RSTH_IH.hasFreeSpaceForItem(dbItem)) {
+                SoundManager.playBuzzer();
+                console.warn("[RSTH] 防具を外せません：インベントリもホットバーも満杯です");
+                return;
+            }
+
+            // ✅ actor.changeEquip により自動的に $gameParty.gainItem() が呼ばれる（RSTHによりインベントリに移動される）
+            actor.changeEquip(slotId, null);
+
+            SoundManager.playEquip();
+            this.refresh();
+            if (SceneManager._scene?.updateInventoryAndHotbar) {
+                SceneManager._scene.updateInventoryAndHotbar();
             }
         }
+
+
+
 
         updateHoverText() {
             if (!this.visible || !this._actor) return;
