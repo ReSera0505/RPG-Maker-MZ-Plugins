@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc RSTH_IH: インベントリ＋ホットバー UI プラグイン ver1.0.1
+ * @plugindesc RSTH_IH: インベントリ＋ホットバー UI プラグイン ver1.0.2
  * @author ReSera_りせら
  *
  * @help
@@ -39,6 +39,19 @@
  *
  * ▼ ライセンス
  * このプラグインは MITライセンス の下で公開されています。
+ * 
+ * ----------------------------
+ * 変更履歴:
+ * ----------------------------
+ * 
+ * Ver.1.0.2 - 2025/05/26
+ *   - インベントリとホットバーが満杯の時、メニューの装備から装備を外せないように修正
+ * 
+ * Ver.1.0.1 - 2025/05/26
+ *   - 通常イベントのアイテム入手処理からインベントリ、ホットバーに格納できるように修正
+ * 
+ * Ver.1.0.0 - 2025/05/25
+ *   - 初版公開
  * 
  * @param HotbarPosition
  * @text ホットバーの画面配置
@@ -1716,6 +1729,67 @@
             return;
         }
     }
+
+
+    // アイテムを挿入できるスロット位置（index）を返す関数
+    window.RSTH_IH.findInsertSlot = function (slots, item, count = 1) {
+        const type = (() => {
+            if (DataManager.isItem(item)) return "item";
+            if (DataManager.isWeapon(item)) return "weapon";
+            if (DataManager.isArmor(item)) return "armor";
+            return "unknown";
+        })();
+
+        // スタック可能なスロットを探す
+        for (let i = 0; i < slots.length; i++) {
+            const slot = slots[i];
+            if (slot && slot.id === item.id && slot.type === type && slot.count + count <= StackSize) {
+                return i;
+            }
+        }
+
+        // 空きスロットを探す
+        for (let i = 0; i < slots.length; i++) {
+            if (!slots[i]) return i;
+        }
+
+        return -1; // 見つからなかった場合
+    };
+
+
+
+    // インベントリに空きが1以上あるかどうか
+    window.RSTH_IH.canInsertToInventory = function (item, count = 1) {
+        const slots = $gameSystem._customInventoryItems || [];
+        return window.RSTH_IH.findInsertSlot(slots, item, count) >= 0;
+    };
+
+    // ホットバーに空きが1以上あるかどうか
+    window.RSTH_IH.canInsertToHotbar = function (item, count = 1) {
+        const slots = $gameSystem._customHotbarItems || [];
+        return window.RSTH_IH.findInsertSlot(slots, item, count) >= 0;
+    };
+
+    // インベントリ、ホットバーが満杯の時に、メニューの装備欄から防具を外した場合の処理
+    const _Game_Actor_changeEquip = Game_Actor.prototype.changeEquip;
+    Game_Actor.prototype.changeEquip = function (slotId, item) {
+        const oldItem = this.equips()[slotId];
+
+        // RSTH制御：装備を外す場合のみ（item == null）
+        if (!item && oldItem && typeof window.RSTH_IH !== "undefined") {
+            const canAddToInv = window.RSTH_IH.canInsertToInventory(oldItem, 1);
+            const canAddToHotbar = window.RSTH_IH.canInsertToHotbar(oldItem, 1);
+            if (!canAddToInv && !canAddToHotbar) {
+                console.warn("[RSTH] 装備を外せません：インベントリとホットバーが満杯");
+                SoundManager.playBuzzer(); // 任意：音を鳴らす
+                return; // 装備解除キャンセル
+            }
+        }
+
+        // 通常の処理へ
+        _Game_Actor_changeEquip.call(this, slotId, item);
+    };
+
 
 
 })();
