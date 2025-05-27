@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc RSTH_EquipmentUI: 装備ウィンドウを追加するプラグイン ver1.0.1
+ * @plugindesc RSTH_EquipmentUI: 装備ウィンドウを追加するプラグイン ver1.0.2
  * @author ReSera_りせら
  *
  * @help
@@ -26,6 +26,19 @@
  * 
  * ▼ ライセンス
  * このプラグインは MITライセンス の下で公開されています。
+ * 
+ * ----------------------------
+ * 変更履歴:
+ * ----------------------------
+ * 
+ * Ver.1.0.2 - 2025/05/27
+ *     RSTH_DEBUG_LOG がtrueの場合のみこのファイルのコンソールログを出力するように修正
+ * 
+ * Ver.1.0.1 - 2025/05/26
+ *   - 細かい修正を実施
+ * 
+ * Ver.1.0.0 - 2025/05/25
+ *   - 初版公開
  * 
  * @param RSTH_EquipmentUI_SLOT_SIZE
  * @text スロットサイズ（px）
@@ -70,6 +83,9 @@
     const SLOT_MARGIN = 8;
 
     window.RSTH_IH = window.RSTH_IH || {};
+
+    // ログ出力制御フラグ（trueでログ出力、falseで抑制）
+    const RSTH_DEBUG_LOG = false;
 
     // 初期化時に指定キーを仮想アクション "toggleEquipment" に割り当て
     Input.keyMapper = Input.keyMapper || {};
@@ -206,7 +222,7 @@
             // ✅ インベントリとホットバーに空きがあるか確認
             if (!window.RSTH_IH.hasFreeSpaceForItem(dbItem)) {
                 SoundManager.playBuzzer();
-                console.warn("[RSTH] 防具を外せません：インベントリもホットバーも満杯です");
+                if (RSTH_DEBUG_LOG) console.warn("[RSTH] 防具を外せません：インベントリもホットバーも満杯です");
                 return;
             }
 
