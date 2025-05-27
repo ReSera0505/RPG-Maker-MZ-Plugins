@@ -38,16 +38,15 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
 
 1. "/js/plugins/" に各 ".js" ファイルをコピーしてください
 2. プラグインマネージャーで有効化し、RSTH_IH.js → RSTH_EquipmentUI.js → RSTH_Survival.js の順に並べてください
-3. 通常の gainItem では動作しません。(今後改善予定)アイテムの追加には以下を使用：
 
-    window.RSTH_IH.gainItemToInventoryThenHotbar($dataItems[2], 10);
 
 ## 注意点
-
 - 各プラグインは MIT ライセンスのもとで自由に使用・改変・配布が可能です
+- イベントコマンドによる通常のアイテム等の増減処理 gainItem は増やす処理のみ機能します。
+- 減少させるにはRSTH_EventHelper.jsのプラグインコマンドを使用してください。
 - 他のインベントリ系や装備UI系プラグインとは互換性がない場合があります
 - アイテムメタタグの定義が必要です
-- グローバル汚染防止のため window.RSTH_IH 名前空間を使用
+- グローバル汚染防止のため window.RSTH_IH 名前空間を使用しています
 
 ## スクリーンショット
 
