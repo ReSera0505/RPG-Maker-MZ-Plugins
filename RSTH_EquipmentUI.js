@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc RSTH_EquipmentUI: 装備ウィンドウを追加するプラグイン ver1.0.2
+ * @plugindesc RSTH_EquipmentUI: 装備ウィンドウを追加するプラグイン ver1.0.3
  * @author ReSera_りせら
  *
  * @help
@@ -30,6 +30,9 @@
  * ----------------------------
  * 変更履歴:
  * ----------------------------
+ * 
+ * Ver.1.0.3 - 2025/05/27
+ *     装備ウィンドウがメッセージウィンドウより下に表示されるように修正。
  * 
  * Ver.1.0.2 - 2025/05/27
  *     RSTH_DEBUG_LOG がtrueの場合のみこのファイルのコンソールログを出力するように修正
@@ -299,6 +302,8 @@
     Scene_Map.prototype.createAllWindows = function () {
         _Scene_Map_createAllWindows.call(this);
         this.RSTH_IH_createEquipmentWindow();
+        this._windowLayer.removeChild(this._equipmentWindow);
+        this._windowLayer.addChildAt(this._equipmentWindow, 0);
 
     };
 

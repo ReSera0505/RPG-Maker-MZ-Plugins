@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc RSTH_IH: インベントリ＋ホットバー UI プラグイン ver1.0.3
+ * @plugindesc RSTH_IH: インベントリ＋ホットバー UI プラグイン ver1.0.5
  * @author ReSera_りせら
  *
  * @help
@@ -43,6 +43,15 @@
  * ----------------------------
  * 変更履歴:
  * ----------------------------
+ * 
+ * Ver.1.0.5 - 2025/05/27
+ *     インベントリ、ホットバーがメッセージウィンドウより下に表示されるように修正。
+ * 
+ * Ver.1.0.4 - 2025/05/27
+ *   - アイテムを二重に使用するバグを修正。
+ *     武器をダブルクリック、数字キー押下で装備できるように修正
+ *     武器を装備するシステム自体をありにするか、なしにするかを
+ *     プラグインパラメータで設定できるように修正
  * 
  * Ver.1.0.3 - 2025/05/27
  *   - インベントリ満杯、ホットバーに空きスロットが1つ、 他スロットに防具2が存在し、
@@ -99,6 +108,11 @@
  * @type number
  * @default 99
  *  
+ * @param EnableWeaponEquip
+ * @text 武器を装備可能にする
+ * @type boolean
+ * @default true
+ * @desc ダブルクリックまたは数字キーで武器を装備する機能をON/OFFできます。
  */
 
 (() => {
@@ -130,6 +144,9 @@
     const InventorycontentHeight = InventoryRows * InventorySlotSize + (InventoryRows - 1) * Inventorymargin;
     const Inventorywidth = InventorycontentWidth + Inventorypadding * 2;
     const Inventoryheight = InventorycontentHeight + Inventorypadding * 2;
+
+    const EnableWeaponEquip = p["EnableWeaponEquip"] === "true";
+
 
     window.RSTH_IH = window.RSTH_IH || {};
     window.RSTH_IH.__draggingItem = null;
@@ -1499,6 +1516,14 @@
             this._hotbarWindow.setItems($gameSystem._customHotbarItems);
         }
 
+        this._windowLayer.removeChild(this._inventoryWindow);
+        this._windowLayer.removeChild(this._hotbarWindow);
+
+        this._windowLayer.addChildAt(this._inventoryWindow, 0);
+        this._windowLayer.addChildAt(this._hotbarWindow, 0);
+
+
+
         this._hoverTextSprite = new Sprite_PopupText();
         this.addChild(this._hoverTextSprite);
 
@@ -1743,6 +1768,93 @@
             return;
         }
 
+        // 武器なら装備処理（アイテム使用ではなく）
+        if (DataManager.isWeapon(dataItem)) {
+            if (!EnableWeaponEquip) return; // ← 武器装備をできなくした場合はreturnする
+            const list = (source === "inventory")
+                ? $gameSystem._customInventoryItems
+                : $gameSystem._customHotbarItems;
+
+            const index = slotIndex ?? list?.findIndex(slot => slot && slot.id === item.id && slot.type === item.type);
+            if (index < 0) return;
+
+            const slot = list[index];
+            if (!slot) return;
+
+            if (!actor.canEquip(dataItem)) {
+                scene.updateInventoryAndHotbar();
+                return;
+            }
+
+            const slotId = actor.equipSlots().findIndex(etypeId => etypeId === dataItem.etypeId);
+            if (slotId === -1) {
+                scene.updateInventoryAndHotbar();
+                return;
+            }
+
+            const removed = actor.equips()[slotId];
+            if (removed === dataItem) {
+                scene.updateInventoryAndHotbar();
+                return;
+            }
+
+            __Vanilla_GainItem(dataItem, 1, true);  // 一時追加
+            actor.changeEquip(slotId, dataItem);
+            const equipped = actor.equips()[slotId];
+
+            if (equipped !== dataItem) {
+                __Vanilla_GainItem(dataItem, -1, false);  // ロールバック
+                scene.updateInventoryAndHotbar();
+                return;
+            }
+
+            let rollback = false;
+            if (removed) {
+                window.RSTH_IH.removeItemFromInventoryOrHotbar(removed, 1);
+                $gameSystem._customHotbarItems = SceneManager._scene._hotbarWindow?.items;
+                SceneManager._scene._hotbarWindow.setItems($gameSystem._customHotbarItems);
+                let ok = true;
+
+                if (!window.RSTH_IH.insertOrStackToInventory(removed)) {
+                    const remain = window.RSTH_IH.gainItemToHotbar(removed, 1);
+                    ok = (1 - remain) > 0;
+                    if (!ok) rollback = true;
+                }
+
+                if (rollback) {
+                    actor.changeEquip(slotId, removed);
+                    __Vanilla_GainItem(dataItem, -1, false);
+                    __Vanilla_GainItem(removed, -1, false);
+                    scene.updateInventoryAndHotbar();
+                    return;
+                }
+            }
+
+            __Vanilla_GainItem(dataItem, -1, false);
+            SoundManager.playEquip();
+
+            const updatedList = (source === "inventory") ? $gameSystem._customInventoryItems : $gameSystem._customHotbarItems;
+            const updatedIndex = updatedList?.findIndex(slot => slot && slot.id === dataItem.id && slot.type === getItemType(dataItem));
+            if (updatedIndex >= 0) {
+                const updatedSlot = updatedList[updatedIndex];
+                if (updatedSlot.count > 1) {
+                    updatedSlot.count--;
+                } else {
+                    updatedList[updatedIndex] = null;
+                }
+            }
+
+            if (source === "inventory") {
+                $gameSystem._customInventoryItems = updatedList;
+            } else {
+                $gameSystem._customHotbarItems = updatedList;
+                SceneManager._scene._hotbarWindow?.setItems(updatedList);
+            }
+
+            scene.updateInventoryAndHotbar();
+            scene._equipmentWindow?.refresh();
+            return;
+        }
 
 
 
@@ -1866,6 +1978,17 @@
         _Game_Actor_changeEquip.call(this, slotId, item);
     };
 
+    // 指定アイテムがインベントリまたはホットバーに存在するか
+    window.RSTH_IH.hasItem = function (item) {
+        if (!item) return false;
+        const type = getItemType(item);
+        const inv = $gameSystem._customInventoryItems || [];
+        const hot = $gameSystem._customHotbarItems || [];
 
+        const existsInInv = inv.some(slot => slot && slot.id === item.id && slot.type === type);
+        const existsInHot = hot.some(slot => slot && slot.id === item.id && slot.type === type);
+
+        return existsInInv || existsInHot;
+    };
 
 })();
