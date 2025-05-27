@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc RSTH_IH: インベントリ＋ホットバー UI プラグイン ver1.0.2
+ * @plugindesc RSTH_IH: インベントリ＋ホットバー UI プラグイン ver1.0.3
  * @author ReSera_りせら
  *
  * @help
@@ -43,6 +43,11 @@
  * ----------------------------
  * 変更履歴:
  * ----------------------------
+ * 
+ * Ver.1.0.3 - 2025/05/27
+ *   - インベントリ満杯、ホットバーに空きスロットが1つ、 他スロットに防具2が存在し、
+ *     防具1を装備している状態で、防具2があるスロットに対応する数字キーを押下後、
+ *     防具2が装備されるが、外された防具1がホットバーに格納されないバグを修正。
  * 
  * Ver.1.0.2 - 2025/05/26
  *   - インベントリとホットバーが満杯の時、メニューの装備から装備を外せないように修正
@@ -459,6 +464,7 @@
 
     // ホットバーに外部からアイテムを追加する処理（RSTH仕様）
     window.RSTH_IH.gainItemToHotbar = function (item, amount = 1) {
+        console.log("gainItemToHotbar呼び出し");
         if (!item || amount <= 0) return 0;
 
         const hotbar = $gameSystem._customHotbarItems || [];
@@ -495,6 +501,8 @@
                     blockName,
                     count: toAdd
                 };
+                console.log(`[gainItemToHotbar] スロット${i}に新規追加: ${item.name} × ${toAdd}`);
+
                 remaining -= toAdd;
             }
         }
@@ -506,6 +514,19 @@
         const win = SceneManager._scene?._hotbarWindow;
         if (win) {
             win.setItems(hotbar);
+            win.items = hotbar;
+            win.refresh();
+        }
+
+        // アイテム追加後に再描画を強制
+        if (SceneManager._scene && SceneManager._scene._hotbarWindow) {
+            SceneManager._scene._hotbarWindow.refresh();
+        }
+
+        if (remaining > 0) {
+            console.warn("[gainItemToHotbar] ホットバーに追加できませんでした:", item.name);
+            console.warn("[gainItemToHotbar] 全スロット数:", 10, "使用中:", hotbar.filter(e => e != null).length);
+            console.log(`[DEBUG] HotbarSlots=10, StackSize=${StackSize}`);
         }
 
         return remaining;
@@ -514,10 +535,13 @@
 
     // 外部からアイテム入手時、インベントリ満杯の場合、ホットバーへ格納
     window.RSTH_IH.gainItemToInventoryThenHotbar = function (item, amount = 1) {
+        const inv = $gameSystem._customInventoryItems ||= Array(InventoryCols * InventoryRows).fill(null);
+        const hot = $gameSystem._customHotbarItems ||= Array(10).fill(null);
         let remaining = window.RSTH_IH.gainItemToInventory(item, amount);
         const addedToInventory = amount - remaining;
 
         remaining = window.RSTH_IH.gainItemToHotbar(item, remaining);
+
         const addedToHotbar = amount - addedToInventory - remaining;
 
         const addedTotal = addedToInventory + addedToHotbar;
@@ -528,6 +552,22 @@
 
         if (SceneManager._scene?.updateInventoryAndHotbar) {
             SceneManager._scene.updateInventoryAndHotbar();
+        }
+
+
+        console.log("[gainItemToInventoryThenHotbar] ホットバーへの追加後:", JSON.stringify(hot));
+        for (let i = 0; i < hot.length; i++) {
+            const slot = hot[i];
+            if (slot) {
+                console.log(`→ スロット${i}: ${slot.name} × ${slot.count}`);
+            } else {
+                console.log(`→ スロット${i}: 空`);
+            }
+        }
+
+        if (SceneManager._scene?._hotbarWindow) {
+            SceneManager._scene._hotbarWindow.setItems($gameSystem._customHotbarItems);
+            SceneManager._scene._hotbarWindow.refresh();
         }
 
         // ← 実際に追加できた数を返すようにする
@@ -543,19 +583,21 @@
         const maxSlots = InventoryCols * InventoryRows;
         const maxStack = StackSize;
 
-        console.log("[RSTH] インベントリへの追加処理開始。この時点ではまだ追加されない:", item.name);
-        console.log("[RSTH] 現在のインベントリ:", JSON.stringify(inv));
+        console.log("[insertOrStackToInventory] インベントリへの追加処理開始。この時点ではまだ追加されない:", item.name);
+        //console.log("[insertOrStackToInventory] 現在のインベントリ:", JSON.stringify(inv));
 
 
         // ① スタック可能なスロットを探して加算（cloneして上書き）
         for (let i = 0; i < maxSlots; i++) {
             const slot = inv[i];
             if (slot && slot.id === item.id && slot.type === type && slot.count < maxStack) {
+                console.log(`[insertOrStackToInventory][CHECK] slot.id=${slot.id}, item.id=${item.id}, slot.count=${slot.count}, StackSize=${maxStack}`);
+
                 const newSlot = { ...slot, count: slot.count + 1 };
                 inv[i] = newSlot;
 
                 $gameSystem._customInventoryItems = inv;
-                console.log(`[RSTH] スロット${i}にスタック +1:`, newSlot);
+                console.log(`[insertOrStackToInventory] スロット${i}にスタック +1:`, newSlot);
                 if (SceneManager._scene?._inventoryWindow) {
                     SceneManager._scene._inventoryWindow.setItems(inv);
                     SceneManager._scene._inventoryWindow.refresh();
@@ -567,6 +609,7 @@
         // ② 空きスロットに新規追加
         for (let i = 0; i < maxSlots; i++) {
             if (!inv[i]) {
+                console.log(`[insertOrStackToInventory][新規追加] スロット${i}が空いています`);
                 inv[i] = {
                     id: item.id,
                     name: item.name,
@@ -578,7 +621,8 @@
                     blockName: String(item.meta?.blockName || ""),
                     count: 1
                 };
-                console.log(`[RSTH] スロット${i}に新規追加:`, inv[i]);
+                console.log(`[insertOrStackToInventory] スロット${i}に新規追加:`, inv[i]);
+
                 $gameSystem._customInventoryItems = inv;
 
                 if (SceneManager._scene?._inventoryWindow) {
@@ -586,10 +630,14 @@
                     SceneManager._scene._inventoryWindow.refresh();
                 }
                 return true;
+            } else {
+                //console.log(`[insertOrStackToInventory][使用不可] スロット${i} → id=${inv[i].id}, name=${inv[i].name}, count=${inv[i].count}`);
             }
         }
         // ③ どこにも格納できなかった
-        console.warn("[RSTH] インベントリに追加できませんでした:", item.name);
+        console.warn("[insertOrStackToInventory] インベントリに追加できませんでした:", item.name);
+        console.warn("[insertOrStackToInventory] 全スロット数:", maxSlots, "使用中:", inv.filter(e => e != null).length);
+        console.log(`[DEBUG] InventorySlots=${InventoryCols * InventoryRows}, StackSize=${StackSize}`);
 
         return false;
     };
@@ -662,6 +710,7 @@
                 if (slot.count <= 0) {
                     inv.splice(i, 1);
                     i--; // 削除したので index 調整
+                    inv[i] = null;
                 }
 
                 if (remaining <= 0) break;
@@ -734,6 +783,7 @@
             //console.log(`描画対象スロット${i}:`, item?.count);
             const rect = self.itemRect(i);
 
+            console.log(`[描画ログ] index=${i}, item=`, item);
             self.contents.paintOpacity = 128;
             self.contents.fillRect(rect.x, rect.y, rect.width, rect.height, "#222");
             self.contents.paintOpacity = 255;
@@ -781,7 +831,8 @@
 
         if (!changed) return;
 
-        self.items = items.map(item => item ? { ...item } : null);
+        self.items = items.map(item => item ? JSON.parse(JSON.stringify(item)) : null);
+
 
         if (storageKey) {
             $gameSystem[storageKey] = self.items;
@@ -1095,6 +1146,7 @@
         }
 
         refresh() {
+            console.log("hot_refresh描画開始");
             this.items = $gameSystem._customHotbarItems || [];
             drawItemSlotGrid(this, this.items, this.slotCount, 1, this.tileSize, this.margin, this.selectedIndex);
             this.hoverCache = [...this.items];
@@ -1159,11 +1211,23 @@
                     const index = Number(key) - 1;
                     hotbarWindow.selectSlotByIndex(index);
                     const item = hotbarWindow.items[index];
+                    hotbarWindow.setItems($gameSystem._customHotbarItems);
+                    if (item) {
+                        console.log(`[[[[[hotbar_useInventoryItem]]]]]${item.name}_index${index}`);
+                        useInventoryItem(item, "hotbar", index);
+                    }
+
                     if (item) useInventoryItem(item, "hotbar", index);
                 } else if (key === "0") {
                     const index = 9;
                     hotbarWindow.selectSlotByIndex(index);
                     const item = hotbarWindow.items[index];
+                    hotbarWindow.setItems($gameSystem._customHotbarItems);
+                    if (item) {
+                        console.log(`[[[[[hotbar_useInventoryItem]]]]]${item.name}_index${index}`);
+                        useInventoryItem(item, "hotbar", index);
+                    }
+
                     if (item) useInventoryItem(item, "hotbar", index);
                 } else if (key === HotbarPrevKey) {
                     hotbarWindow.selectPreviousSlot();
@@ -1192,6 +1256,8 @@
 
         setItems(items) {
             setItemsSafe(this, items, "_customHotbarItems");
+            console.log("hot_setItemsSafe実行");
+
             this.refresh();
         }
 
@@ -1267,6 +1333,7 @@
 
         // リフレッシュ
         refresh() {
+            console.log("inv_refresh描画開始");
             this.items = $gameSystem._customInventoryItems || [];
             drawItemSlotGrid(this, this.items, InventoryCols, InventoryRows, this.tileSize, this.margin, this.selectedIndex);
             this.hoverCache = [...this.items];
@@ -1330,6 +1397,7 @@
 
         setItems(items) {
             setItemsSafe(this, items, "_customInventoryItems");
+            console.log("inv_setItemsSafe実行");
             this.refresh();
         }
 
@@ -1449,9 +1517,12 @@
     const _Game_System_initialize = Game_System.prototype.initialize;
     Game_System.prototype.initialize = function () {
         _Game_System_initialize.call(this);
-        this._customInventoryItems = [];
-        this._customHotbarItems = [];
+        const maxInv = InventoryCols * InventoryRows;
+        const maxHot = 10;
+        this._customInventoryItems = Array(maxInv).fill(null);
+        this._customHotbarItems = Array(maxHot).fill(null);
     };
+
 
 
 
@@ -1490,6 +1561,7 @@
                     const index = slotIndex ?? list?.findIndex(slot => slot && slot.id === item.id && slot.type === item.type);
                     if (index >= 0) {
                         const slot = list[index];
+                        if (!slot) return; // ★ null 安全チェック
                         if (slot.count > 1) {
                             slot.count--;
                         } else {
@@ -1532,12 +1604,18 @@
 
         // 防具なら装備処理（アイテム使用ではなく）
         if (DataManager.isArmor(dataItem)) {
-            const index = slotIndex;
             const list = (source === "inventory")
                 ? $gameSystem._customInventoryItems
-                : SceneManager._scene._hotbarWindow.items;
+                : $gameSystem._customHotbarItems;
+
+            const index = slotIndex ?? list?.findIndex(slot => slot && slot.id === item.id && slot.type === item.type);
+            if (index < 0) return;
+
+
+
+
             const slot = list[index];
-            const totalCount = slot.count || 1;
+            if (!slot) return; // ★ null 安全チェック
 
             console.log("[装備処理] 使用アイテム:", dataItem.name);
             console.log("[装備処理] 使用元:", source, "index:", index);
@@ -1546,7 +1624,6 @@
             if (!actor.canEquip(dataItem)) {
                 console.log("[装備処理] 装備不可");
                 scene.updateInventoryAndHotbar();
-
                 return;
             }
 
@@ -1554,7 +1631,6 @@
             if (slotId === -1) {
                 console.log("[装備処理] 該当スロットが存在しない");
                 scene.updateInventoryAndHotbar();
-
                 return;
             }
 
@@ -1564,109 +1640,101 @@
             if (removed === dataItem) {
                 console.log("[装備処理] すでに同じアイテムが装備されている");
                 scene.updateInventoryAndHotbar();
-
                 return;
             }
 
             console.log(`[装備処理] 新装備(dataItem.name)${dataItem.name}を一時的に $gameParty に追加`);
             __Vanilla_GainItem(dataItem, 1, true);
 
-            const inv1 = $gameSystem._customInventoryItems || [];
-            console.log("[changeEquip前] 現在のインベントリ:", JSON.stringify(inv1));
-
-            //ここはactorが新装備を装備する処理でgainitemの処理が走り、古い装備がインベントリかホットバーに追加される
-            console.log(`[装備処理] 新装備${dataItem.name}(dataItem.name)を装備ウィンドウのslotId${slotId}に追加`);
+            const invBefore = $gameSystem._customInventoryItems || [];
+            console.log("[changeEquip前] 現在のインベントリ:", JSON.stringify(invBefore));
 
             actor.changeEquip(slotId, dataItem);
 
             const equipped = actor.equips()[slotId];
-
             console.log("[装備処理] 装備後の状態:", equipped?.name || "装備失敗");
 
-
-            const inv2 = $gameSystem._customInventoryItems || [];
-            console.log("[装備処理] [changeEquip後] 現在のインベントリ:", JSON.stringify(inv2));
-
-
-            //古い装備がインベントリに残ったまま
             let rollback = false;
             if (equipped === dataItem) {
                 if (removed) {
                     console.log("[装備処理] 古い装備をRSTHに戻す:", removed.name);
-                    // removed を取り除く
+
                     window.RSTH_IH.removeItemFromInventoryOrHotbar(removed, 1);
-                    let ok = window.RSTH_IH.insertOrStackToInventory(removed);
-                    // 強制完全再描画（Canvasキャッシュ破棄）
-                    const invWindow = SceneManager._scene?._inventoryWindow;
-                    if (invWindow) {
-                        invWindow.refresh();
-                        if (invWindow._windowContentsSprite && invWindow._windowContentsSprite.children) {
-                            invWindow._windowContentsSprite.children = [];
+                    $gameSystem._customHotbarItems = SceneManager._scene._hotbarWindow?.items;
+                    SceneManager._scene._hotbarWindow.setItems($gameSystem._customHotbarItems);
+
+                    let ok = true;
+
+                    if (!window.RSTH_IH.insertOrStackToInventory(removed)) {
+                        if (source === "hotbar") {
+                            $gameSystem._customHotbarItems = SceneManager._scene._hotbarWindow?.items;
+                        }
+                        const remain = window.RSTH_IH.gainItemToHotbar(removed, 1);
+                        const actuallyAdded = 1 - remain;
+                        console.log("[装備処理] gainItemToHotbar result (remain):", remain);
+                        console.log("[装備処理] actuallyAdded to hotbar:", actuallyAdded);
+                        ok = (actuallyAdded > 0);
+                        if (!ok) {
+                            console.warn("[装備処理] rollback発動：古い装備を戻せない");
+                            rollback = true;
                         }
                     }
-
-                    scene.updateInventoryAndHotbar();
-
-                    if (!ok) {
-                        console.log("[装備処理] インベントリに入らなかった → ホットバーに試行");
-                        const remain = window.RSTH_IH.gainItemToHotbar(removed, 1);
-                        ok = (remain === 0);
-                    }
-                    if (!ok) {
-                        console.warn("[装備処理] rollback発動：古い装備を戻せない");
-                        rollback = true;
-                    }
-
                 }
 
                 if (rollback) {
                     console.log("[rollback処理] 新装備を削除し、装備を戻す");
-                    window.RSTH_IH.removeItemFromInventoryOrHotbar(dataItem, 1);    // インベントリ、ホットバーから新装備を削除。
-                    console.log(`[rollback処理] インベントリ、ホットバーから新装備${dataItem.name}を削除`);
-                    __Vanilla_GainItem(dataItem, -1, false);        // $gamepartyから新装備を削除
-                    console.log(`[rollback処理] $gamepartyから新装備${dataItem.name}を削除`);
-                    __Vanilla_GainItem(removed, 1, false);          // $gamepartyに古い装備を追加
-                    console.log(`[rollback処理] $gamepartyに古い装備${removed.name}を追加`);
-                    actor.changeEquip(slotId, removed);             // 古い装備を装備しなおす（新装備が$gamepartyに追加される）
-                    console.log(`[rollback処理] 古い装備${removed.name}を装備しなおす`);
-                    __Vanilla_GainItem(removed, -1, false);         // $gamepartyから古い装備を削除
-                    console.log(`[rollback処理] 古い装備${removed.name}を$gamepartyから削除`);
-
+                    window.RSTH_IH.removeItemFromInventoryOrHotbar(dataItem, 1);
+                    __Vanilla_GainItem(dataItem, -1, false);
+                    __Vanilla_GainItem(removed, 1, false);
+                    actor.changeEquip(slotId, removed);
+                    __Vanilla_GainItem(removed, -1, false);
                     scene.updateInventoryAndHotbar();
                     SceneManager._scene._inventoryWindow.refresh();
+                    SceneManager._scene._hotbarWindow.refresh();
                     return;
                 }
 
-
                 console.log("[装備処理] 装備成功 → 新装備を $gameParty から削除");
-                __Vanilla_GainItem(dataItem, -1, false);    // $gamepartyから新装備を削除
-
+                __Vanilla_GainItem(dataItem, -1, false);
                 SoundManager.playEquip();
 
-                if (totalCount > 1) {
-                    slot.count--;
-                    console.log("[装備処理] RSTHスロットのcount減少:", slot.count);
+                // ▼ ここで最新のlist再取得とindex再検索
+                const updatedList = (source === "inventory") ? $gameSystem._customInventoryItems : $gameSystem._customHotbarItems;
+                const updatedIndex = updatedList?.findIndex(slot => slot && slot.id === dataItem.id && slot.type === getItemType(dataItem));
+                if (updatedIndex >= 0) {
+                    const updatedSlot = updatedList[updatedIndex];
+                    const total = updatedSlot.count || 1;
+
+                    if (total > 1) {
+                        updatedSlot.count--;
+                        console.log("[totalCount > 1] RSTHスロットのcount減少:", updatedSlot.count);
+                    } else {
+                        updatedList[updatedIndex] = null;
+                        console.log("[装備処理] count==1のためnull化");
+                    }
                 } else {
-                    list[index] = null;
-                    console.log("[装備処理] RSTHスロットをnullに");
+                    console.warn("[装備処理] 使用アイテムのスロットが見つからない");
                 }
 
+                // ※ removed をここで戻すことで、上書きの影響を避ける
+                //window.RSTH_IH.insertOrStackToInventory(removed); ← 上で完了済みなので不要
+
                 if (source === "inventory") {
-                    $gameSystem._customInventoryItems = list;
+                    $gameSystem._customInventoryItems = updatedList;
                 } else {
-                    $gameSystem._customHotbarItems = list;
-                    SceneManager._scene._hotbarWindow?.setItems(list);
+                    $gameSystem._customHotbarItems = updatedList;
+                    SceneManager._scene._hotbarWindow?.setItems(updatedList);
                 }
 
                 scene.updateInventoryAndHotbar();
                 scene._equipmentWindow?.refresh();
-
                 return;
             }
 
+
+
             console.log("[装備処理] 装備失敗 → 新装備を削除");
             __Vanilla_GainItem(dataItem, -1, false);
-
             scene.updateInventoryAndHotbar();
             return;
         }
@@ -1681,6 +1749,8 @@
             if (index < 0) return;
 
             const slot = list[index];
+
+            if (!slot) return; // ★ null 安全チェック
             __Vanilla_GainItem(dataItem, 1, false);
 
             if (actor.canUse(dataItem)) {
@@ -1709,6 +1779,7 @@
             if (index < 0) return;
 
             const slot = list[index];
+            if (!slot) return; // ★ null 安全チェック
 
             // 修正：gainItemせずに条件を手動チェック
             if ($gameParty.canInput() && actor.meetsUsableItemConditions(dataItem)) {
