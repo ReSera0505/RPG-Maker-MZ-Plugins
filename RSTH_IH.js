@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc RSTH_IH: インベントリ＋ホットバー UI プラグイン ver1.0.6
+ * @plugindesc RSTH_IH: インベントリ＋ホットバー UI プラグイン ver1.0.7
  * @author ReSera_りせら
  *
  * @help
@@ -43,6 +43,9 @@
  * ----------------------------
  * 変更履歴:
  * ----------------------------
+ * 
+ * Ver.1.0.7 - 2025/05/31
+ *     RSTH_Survival.jsに合わせて内容を修正。
  * 
  * Ver.1.0.6 - 2025/05/29
  *     インベントリ、ホットバーのprocessTouch()関連の処理を修正。
@@ -305,12 +308,33 @@
     }
 
     // プレイヤーの正面タイルの座標を取得する関数
-    function getFrontTileXY() {
-        const player = $gamePlayer;
-        const x = $gameMap.roundXWithDirection(player.x, player.direction());
-        const y = $gameMap.roundYWithDirection(player.y, player.direction());
-        return [x, y];
+    function getFrontTileXY(itemId) {
+        const dir = $gamePlayer.direction();
+        const baseX = $gamePlayer.x + (dir === 6 ? 1 : dir === 4 ? -1 : 0);
+        const baseY = $gamePlayer.y + (dir === 2 ? 1 : dir === 8 ? -1 : 0);
+
+        const item = $dataItems[itemId];
+        let sizeX = 1, sizeY = 1;
+        if (item?.meta?.size) {
+            try {
+                const size = JSON.parse(item.meta.size);
+                sizeX = Number(size[0]) || 1;
+                sizeY = Number(size[1]) || 1;
+            } catch (e) { }
+        }
+
+        // 方向によって原点補正
+        let offsetX = 0;
+        let offsetY = 0;
+        if (dir === 4) { // 左向き
+            offsetX = -(sizeX - 1);
+        } else if (dir === 8) { // 上向き
+            offsetY = -(sizeY - 1);
+        }
+
+        return [baseX + offsetX, baseY + offsetY];
     }
+
 
     // アイテム種別判定
     function getItemType(item) {
@@ -466,21 +490,50 @@
 
                 const tileId = Number(item.meta.tileId || 0);
                 const blockName = String(item.meta.blockName || "");
+                if (!inv[i]) {
+                    inv[i] = {
+                        id: item.id,
+                        type,
+                        iconIndex: item.iconIndex,
+                        name: item.name,
+                        count: toAdd
+                    };
 
-                inv[i] = {
-                    id: item.id,
-                    name: item.name,
-                    iconIndex: item.iconIndex,
-                    tileset: item.meta.tileset || "IconSet",
-                    tileIndex: [item.iconIndex],
-                    type,
-                    tileId: Number(item.meta.tileId || 0),
-                    blockName: String(item.meta.blockName || ""),
-                    tileOffsets: item.meta.tileOffsets || "[]", // ここを保存
-                    size: item.meta.size || "[1,1]",            // 任意
-                    count: toAdd
-                };
+                    // ブロックアイテムであれば、追加メタ情報を付加
+                    if (inv[i].type === "block") {
+                        const meta = $gameSystem.rsthgetBlockMetaByItemId(item.id);
 
+                        if (RSTH_DEBUG_LOG) console.warn(`[gainItemToInventory] item.id`, item.id);
+                        if (meta) {
+                            inv[i].blockName = String(item.meta.blockName || "");
+                            inv[i].tileId = isNaN(Number(meta.tileId)) ? 0 : Number(meta.tileId);
+                            inv[i].size = (meta.size && Array.isArray(meta.size)) ? meta.size : [1, 1];
+                            inv[i].tileset = meta.tileset || "IconSet";
+
+                            // tileOffsets1 の安全な代入
+                            try {
+                                inv[i].tileOffsets1 = Array.isArray(meta.tileOffsets1) ? meta.tileOffsets1 : JSON.parse(meta.tileOffsets1 || "[]");
+                            } catch (e) {
+                                if (RSTH_DEBUG_LOG) console.error("[gainItemToInventory] tileOffsets1 parse error:", e, meta.tileOffsets1);
+                                inv[i].tileOffsets1 = [];
+                            }
+
+                            // tileOffsets2 の安全な代入
+                            try {
+                                inv[i].tileOffsets2 = Array.isArray(meta.tileOffsets2) ? meta.tileOffsets2 : JSON.parse(meta.tileOffsets2 || "[]");
+                            } catch (e) {
+                                if (RSTH_DEBUG_LOG) console.error("[gainItemToInventory] tileOffsets2 parse error:", e, meta.tileOffsets2);
+                                inv[i].tileOffsets2 = [];
+                            }
+
+                            inv[i].growthTime = meta.growthTime;
+                            inv[i].dropItems1 = meta.dropItems1;
+                            inv[i].dropItems2 = meta.dropItems2;
+                        }
+                    }
+                }
+
+                if (RSTH_DEBUG_LOG) console.warn(`[gainItemToInventory] inv[${i}]`, inv[i]);
 
                 remaining -= toAdd;
             }
@@ -1603,8 +1656,6 @@
     // ==============================
 
     function useInventoryItem(item, source = "inventory", slotIndex = null) {
-        //if (RSTH_DEBUG_LOG) console.log(`[useInventoryItem] 実行開始: source=${source}, slotIndex=${slotIndex}, item=${JSON.stringify(item)}`);
-        //if (RSTH_DEBUG_LOG) console.log(`[useInventoryItem]1 プレイヤー移動ロック状態: $gamePlayer.canMove()=${$gamePlayer.canMove()}`);
 
 
         const scene = SceneManager._scene;
@@ -1625,25 +1676,33 @@
             const tileId = Number(item.tileId || 0);
 
             if (tileId > 0) {
-                let [x, y] = getFrontTileXY();
+                let [x, y] = getFrontTileXY(item.id);
 
-                if (RSTH_DEBUG_LOG) console.log(`[useInventoryItem]item${item}`);
+                if (RSTH_DEBUG_LOG) console.log(`[useInventoryItem]item`, item);
                 const gameItem = getGameItem(item);
 
-                if (RSTH_DEBUG_LOG) console.log(`[useInventoryItem]gameItem${gameItem}`);
-
-                const tileOffsets = JSON.parse(gameItem.meta.tileOffsets || "[]");
-
-
-                // プレイヤーが上向きかつ縦長ブロックの場合は最下段が前に来るように調整
-                if ($gamePlayer.direction() === 8 && tileOffsets.length >= 2) {
-                    const maxDy = Math.max(...tileOffsets.map(of => of.dy ?? 0));
-                    y -= maxDy;
+                if (RSTH_DEBUG_LOG) console.log(`[useInventoryItem]gameItem`, gameItem);
+                // tileOffsets1をJSONとしてパース
+                let tileOffsets = [];
+                try {
+                    tileOffsets = JSON.parse(gameItem.meta.tileOffsets1 || "[]");
+                    if (RSTH_DEBUG_LOG) console.warn(`[SurvivalBlockManager][place]tileOffsets`, tileOffsets);
+                } catch (e) {
+                    if (RSTH_DEBUG_LOG) console.warn(`[SurvivalBlockManager][place]tileOffsets1 parse error`, e);
+                    return; // パースエラー時は設置しない
                 }
-                for (const offset of tileOffsets) {
-                    const px = x + (offset.dx || 0);
-                    const py = y + (offset.dy || 0);
 
+                if (RSTH_DEBUG_LOG) console.warn(`[SurvivalBlockManager][place]tileOffsets`, tileOffsets);
+
+                for (const offset of tileOffsets) {
+                    const dx = Number(offset.dx || 0);
+                    const dy = Number(offset.dy || 0);
+                    const px = x + dx;
+                    const py = y + dy;
+
+
+                    if (RSTH_DEBUG_LOG) console.warn(`[SurvivalBlockManager][place]offset`, offset);
+                    //if (RSTH_DEBUG_LOG) console.warn(`[SurvivalBlockManager][place]評価位置 (${px}, ${py})`);
                     if (px < 0 || py < 0 || px >= $gameMap.width() || py >= $gameMap.height()) {
                         if (RSTH_DEBUG_LOG) console.warn(`[useInventoryItem][block]設置位置(${px},${py})がマップ外。設置キャンセル`);
                         return; // マップ外なら何もせず終了（アイテム消費なし）
@@ -1667,15 +1726,27 @@
                 // ブロックが未設置の場合のみ設置
                 if (canPlaceBlockAt(x, y, gameItem)) {
                     const itemId = item.id;
-                    //if (!window.RSTH_IH.SurvivalBlockManager.get(x, y)) {
                     if (RSTH_DEBUG_LOG) console.log(`[useInventoryItem]ブロック設置: (${x}, ${y}) → tileId ${tileId}, itemId ${itemId}`);
 
 
 
 
-                    // ブロック設置処理
+                    // ブロック設置
                     window.RSTH_IH.SurvivalBlockManager.place(x, y, itemId);
-                    if (RSTH_DEBUG_LOG) console.log("[useInventoryItem]全ブロック一覧", window.RSTH_IH.SurvivalBlockManager._blocks);
+
+                    // 追加されたブロック群から、中心ブロック（originX/Yと一致）を取得
+                    const placedBlocks = window.RSTH_IH.SurvivalBlockManager._blocks;
+                    const rootBlock = placedBlocks.find(b => b.originX === x && b.originY === y && b.growthStage === 0);
+
+                    // growthTimeがあれば、そこに記録（必要ならブロック構造を拡張）
+                    if (item.growthTime && rootBlock) {
+                        rootBlock.growthTime = Number(item.growthTime); // ← 保存用（将来セーブ対象にするなら必要）
+                        $gameSystem.rsthstartGrowthTimer(rootBlock.x, rootBlock.y, rootBlock.growthTime);
+                    }
+
+
+                    if (RSTH_DEBUG_LOG) console.log("[canPlaceBlockAt]$gameSystem._rsthPlacedFurniture", $gameSystem._rsthPlacedFurniture)
+
 
                     // ▼ アイテム1個消費処理
                     const list = (source === "inventory")
@@ -1717,7 +1788,7 @@
         if (item.type === "tool") {
             const gameItem = getGameItem(item);
             if (isToolWeapon(gameItem)) {
-                const [x, y] = getFrontTileXY();
+                const [x, y] = getFrontTileXY(item.id);
 
                 if (RSTH_DEBUG_LOG) console.log(`[useInventoryItem][tool]x ${x} y ${y}`);
 
@@ -2123,13 +2194,14 @@
     function canPlaceBlockAt(x, y, item) {
         //if (RSTH_DEBUG_LOG) console.log(`[canPlaceBlockAt]item${item}, item.meta${item.meta}, item.meta.tileOffsets${item.meta.tileOffsets}`);
 
-        if (RSTH_DEBUG_LOG) console.log(`[canPlaceBlockAt]item${item}, item.meta${item.meta}`);
-        if (!item || !item.meta || !item.meta.tileOffsets) return false;
+        if (RSTH_DEBUG_LOG) console.log(`[canPlaceBlockAt]item`, item, `item.meta`, item.meta);
+
+        if (!item || !item.meta || !item.meta.tileOffsets1) return false;
 
         if (RSTH_DEBUG_LOG) console.log("[canPlaceBlockAt]not return false");
         try {
             if (RSTH_DEBUG_LOG) console.log("[canPlaceBlockAt]try");
-            const tileOffsets = JSON.parse(item.meta.tileOffsets);
+            const tileOffsets = JSON.parse(item.meta.tileOffsets1);
             return tileOffsets.every(offset => {
                 const px = x + (offset.dx || 0);
                 const py = y + (offset.dy || 0);
@@ -2137,7 +2209,7 @@
             });
         } catch (e) {
             if (RSTH_DEBUG_LOG) console.log("[canPlaceBlockAt]catch (e)");
-            if (RSTH_DEBUG_LOG) console.log(`[canPlaceBlockAt] (${tx}, ${ty}) には既にブロックがあります`);
+            if (RSTH_DEBUG_LOG) console.log(`[canPlaceBlockAt] (${x}, ${y}) には既にブロックがあります`);
             return false;
         }
     }
