@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>TileID計算ツール</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        #tileCanvas {
+            border-bottom: 2px solid #444;
+            cursor: crosshair;
+            flex-grow: 1;
+        }
+
+        #controls {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            gap: 10px;
+            background-color: #eee;
+        }
+
+        input[type="number"] {
+            width: 60px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <canvas id="tileCanvas"></canvas>
+
+    <div id="controls">
+        <label>タイル画像:
+            <input type="file" id="tileImageInput" accept="image/*">
+        </label>
+        <label>画像名: <span id="tileName">未選択</span></label>
+        <label>tilesize: <input type="number" id="tileSize" value="48"></label>
+        <label>cols: <input type="number" id="tileCols" value="16"></label>
+        <span id="tileInfo">クリックで tileID を表示</span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("tileCanvas");
+        const ctx = canvas.getContext("2d");
+        const tileImageInput = document.getElementById("tileImageInput");
+        const tileName = document.getElementById("tileName");
+        const tileSizeInput = document.getElementById("tileSize");
+        const tileColsInput = document.getElementById("tileCols");
+        const tileInfo = document.getElementById("tileInfo");
+
+        let image = new Image();
+        let tilesize = 48;
+        let cols = 16;
+
+        tileImageInput.addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            tileName.textContent = file.name;
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                image.onload = () => {
+                    resizeCanvas();
+                    drawTileset();
+                };
+                image.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        tileSizeInput.addEventListener("input", () => {
+            const value = parseInt(tileSizeInput.value);
+            if (!isNaN(value) && value > 0) {
+                tilesize = value;
+                resizeCanvas(); // ← 追加
+                drawTileset();  // ← 再描画
+            }
+        });
+
+        tileColsInput.addEventListener("input", () => {
+            const value = parseInt(tileColsInput.value);
+            if (!isNaN(value) && value > 0) {
+                cols = value;
+                drawTileset();
+            }
+        });
+
+        canvas.addEventListener("click", (e) => {
+            if (!image.src) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;  // ← スケール補正
+            const scaleY = canvas.height / rect.height;
+
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            const col = Math.floor(x / tilesize);
+            const row = Math.floor(y / tilesize);
+            const tileID = row * cols + col + 1;
+
+            tileInfo.textContent = `クリック位置 → col: ${col}, row: ${row}, tileID: ${tileID}`;
+        });
+
+
+
+        function resizeCanvas() {
+            canvas.width = image.width;
+            canvas.height = image.height;
+        }
+
+        function drawTileset() {
+            if (image.src) {
+                resizeCanvas();
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(image, 0, 0);
+                drawGrid();
+            }
+        }
+
+        function drawGrid() {
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
+            for (let x = 0; x < canvas.width; x += tilesize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += tilesize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+        }
+    </script>
+
+</body>
+
+</html>
