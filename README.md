@@ -1,4 +1,4 @@
-# RSTH RPG Maker MZ Plugins
+# RSTH RPG Maker MZ Plugins(Ver:1.0.8)
 
 RPGツクールMZ向けのサバイバル・クラフト・インベントリ・装備UIの統合プラグインセットです。
 ただし、まだ作成中のため、正常に動く保証はありません。
