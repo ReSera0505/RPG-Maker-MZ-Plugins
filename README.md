@@ -78,27 +78,29 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
  * ブロックを設置するアイテムのメモ欄には以下のようなメタタグを設定してください：
  *
  * ▼ ブロックアイテムのメタタグ例（通常アイテムとして作成）
- * <block>
- * <tileId:172>
- * <blockName:ドラゴンの石像>
- * <size:[2,2]>
- * <tileset:Inside_C>
- * <tileOffsets1:[
- *   {"dx":0,"dy":0,"tileId":172,"passable":true,"blockZ":"over"},
- *   {"dx":1,"dy":0,"tileId":173,"passable":true,"blockZ":"over"},
- *   {"dx":0,"dy":1,"tileId":188,"passable":false,"blockZ":"under"},
- *   {"dx":1,"dy":1,"tileId":189,"passable":false,"blockZ":"under"}
- * ]>
- * <tileOffsets2:[
- *   {"dx":0,"dy":0,"tileId":181,"passable":true,"blockZ":"under"},
- *   {"dx":1,"dy":0,"tileId":182,"passable":true,"blockZ":"under"},
- *   {"dx":0,"dy":1,"tileId":213,"passable":true,"blockZ":"over"},
- *   {"dx":1,"dy":1,"tileId":214,"passable":true,"blockZ":"over"}
- * ]>
- * <growthTime:200>
- * <dropItems1:itemId:4,amount:1>
- * <dropItems2:itemId:4,amount:3>
  * 以上がメモ欄へ記載するメタタグ。
+<pre>
+<block>
+<tileId:172>
+<blockName:ドラゴンの石像>
+<size:[2,2]>
+<tileset:Inside_C>
+<tileOffsets1:[
+  {"dx":0,"dy":0,"tileId":172,"passable":true,"blockZ":"over"},
+  {"dx":1,"dy":0,"tileId":173,"passable":true,"blockZ":"over"},
+  {"dx":0,"dy":1,"tileId":188,"passable":false,"blockZ":"under"},
+  {"dx":1,"dy":1,"tileId":189,"passable":false,"blockZ":"under"}
+]>
+<tileOffsets2:[
+  {"dx":0,"dy":0,"tileId":181,"passable":true,"blockZ":"under"},
+  {"dx":1,"dy":0,"tileId":182,"passable":true,"blockZ":"under"},
+  {"dx":0,"dy":1,"tileId":213,"passable":true,"blockZ":"over"},
+  {"dx":1,"dy":1,"tileId":214,"passable":true,"blockZ":"over"}
+]>
+<growthTime:200>
+<dropItems1:itemId:4,amount:1>
+<dropItems2:itemId:4,amount:3>
+</pre>
  * tileIdはタイルセットのcols（1行に何個タイルがあるか）に影響されます。
  * colsが16の場合、1行目はtileId:1で、2行目はtileId:17となります。
  * colsはプラグインパラメータで変更が可能です。
