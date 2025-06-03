@@ -79,7 +79,7 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
  *
  * ▼ ブロックアイテムのメタタグ例（通常アイテムとして作成）
  * 以上がメモ欄へ記載するメタタグ。
-<pre>```html 
+```txt
 <block>
 <tileId:172>
 <blockName:ドラゴンの石像>
@@ -100,7 +100,7 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
 <growthTime:200>
 <dropItems1:itemId:4,amount:1>
 <dropItems2:itemId:4,amount:3>
-```</pre>
+```
  * tileIdはタイルセットのcols（1行に何個タイルがあるか）に影響されます。
  * colsが16の場合、1行目はtileId:1で、2行目はtileId:17となります。
  * colsはプラグインパラメータで変更が可能です。
