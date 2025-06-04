@@ -36,6 +36,9 @@
  * 変更履歴:
  * ----------------------------
  * 
+ * Ver.1.0.1 - 2025/06/05
+ *   - ファイル名変更対応
+ * 
  * Ver.1.0.0 - 2025/05/27
  *   - 初版公開
  * 
@@ -129,9 +132,13 @@
     const RSTH_EventHelper = {};
 
     // ログ出力制御フラグ（trueでログ出力、falseで抑制）
+    //const RSTH_DEBUG_LOG = true;
     const RSTH_DEBUG_LOG = false;
 
-    PluginManager.registerCommand("RSTH_EventHelper", "LoseItem", args => {
+    const filename = document.currentScript.src.match(/([^\/]+)\.js$/)[1];
+
+    PluginManager.registerCommand(filename, "LoseItem", args => {
+        if (RSTH_DEBUG_LOG) console.log(`[RSTH_EventHelper] Lose: start`);
         const itemId = Number(args.itemId || 0);
         const amount = Number(args.amount || 1);
         const item = $dataItems[itemId];
@@ -142,7 +149,8 @@
     });
 
 
-    PluginManager.registerCommand("RSTH_EventHelper", "LoseWeapon", args => {
+    PluginManager.registerCommand(filename, "LoseWeapon", args => {
+        if (RSTH_DEBUG_LOG) console.log(`[RSTH_EventHelper] Lose: start`);
         const weaponId = Number(args.weaponId || 0);
         const amount = Number(args.amount || 1);
         const weapon = $dataWeapons[weaponId];
@@ -152,7 +160,8 @@
         }
     });
 
-    PluginManager.registerCommand("RSTH_EventHelper", "LoseArmor", args => {
+    PluginManager.registerCommand(filename, "LoseArmor", args => {
+        if (RSTH_DEBUG_LOG) console.log(`[RSTH_EventHelper] Lose: start`);
         const armorId = Number(args.armorId || 0);
         const amount = Number(args.amount || 1);
         const armor = $dataArmors[armorId];
@@ -162,21 +171,21 @@
         }
     });
 
-    PluginManager.registerCommand("RSTH_EventHelper", "HasItem", args => {
+    PluginManager.registerCommand(filename, "HasItem", args => {
         const itemId = Number(args.itemId);
         const switchId = Number(args.switchId);
         const result = RSTH_EventHelper.hasItem(itemId);
         $gameSwitches.setValue(switchId, result);
     });
 
-    PluginManager.registerCommand("RSTH_EventHelper", "HasWeapon", args => {
+    PluginManager.registerCommand(filename, "HasWeapon", args => {
         const weaponId = Number(args.weaponId);
         const switchId = Number(args.switchId);
         const result = RSTH_EventHelper.hasWeapon(weaponId);
         $gameSwitches.setValue(switchId, result);
     });
 
-    PluginManager.registerCommand("RSTH_EventHelper", "HasArmor", args => {
+    PluginManager.registerCommand(filename, "HasArmor", args => {
         const armorId = Number(args.armorId);
         const switchId = Number(args.switchId);
         const result = RSTH_EventHelper.hasArmor(armorId);
