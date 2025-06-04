@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc RSTH: イベント対応処理拡張プラグイン v1.0.0
+ * @plugindesc RSTH: イベント対応処理拡張プラグイン v1.0.1
  * @author ReSera_りせら
  *
  * @help
