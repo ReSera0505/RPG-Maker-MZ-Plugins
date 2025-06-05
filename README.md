@@ -1,4 +1,4 @@
-# RSTH RPG Maker MZ Plugins(Ver:1.0.8)
+# RSTH RPG Maker MZ Plugins(Ver:1.0.9)
 
 RPGツクールMZ向けのサバイバル・クラフト・インベントリ・装備UIの統合プラグインセットです。
 ただし、まだ作成中のため、正常に動く保証はありません。
@@ -7,6 +7,7 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
 ## 概要
 
 このプラグイン群は以下の主要機能を追加します：
+
 
  * このプラグインはマップ画面にインベントリとホットバーUIを追加し、
  * プレイヤーの持ち物やショートカットバー（ホットバー）を視覚的に管理できます。
@@ -78,38 +79,46 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
  * ブロックを設置するアイテムのメモ欄には以下のようなメタタグを設定してください：
  *
  * ▼ ブロックアイテムのメタタグ例（通常アイテムとして作成）
-```txt
+```
 <block>
-<tileId:172>
-<blockName:ドラゴンの石像>
-<size:[2,2]>
-<tileset:Inside_C>
+<tileId:60>
+<blockName:木>
+<blockType:plant>
+<size:[1,2]>
+<tileset:Tl_Outside_B>
 <tileOffsets1:[
-  {"dx":0,"dy":0,"tileId":172,"passable":true,"blockZ":"over"},
-  {"dx":1,"dy":0,"tileId":173,"passable":true,"blockZ":"over"},
-  {"dx":0,"dy":1,"tileId":188,"passable":false,"blockZ":"under"},
-  {"dx":1,"dy":1,"tileId":189,"passable":false,"blockZ":"under"}
+  {"dx":0,"dy":0,"tileId":1,"passable":true,"blockZ":"under"},
+  {"dx":0,"dy":1,"tileId":60,"passable":false,"blockZ":"under"}
 ]>
 <tileOffsets2:[
-  {"dx":0,"dy":0,"tileId":181,"passable":true,"blockZ":"under"},
-  {"dx":1,"dy":0,"tileId":182,"passable":true,"blockZ":"under"},
-  {"dx":0,"dy":1,"tileId":213,"passable":true,"blockZ":"over"},
-  {"dx":1,"dy":1,"tileId":214,"passable":true,"blockZ":"over"}
+  {"dx":0,"dy":0,"tileId":76,"passable":true,"blockZ":"over"},
+  {"dx":0,"dy":1,"tileId":92,"passable":false,"blockZ":"under"}
 ]>
 <growthTime:200>
-<dropItems1:itemId:4,amount:1>
-<dropItems2:itemId:4,amount:3>
+<dropItems1:itemId:52,amount:1>
+<dropItems2:itemId:52,amount:3>
 ```
+ 
  * 以上がメモ欄へ記載するメタタグ。
  * tileIdはタイルセットのcols（1行に何個タイルがあるか）に影響されます。
  * colsが16の場合、1行目はtileId:1で、2行目はtileId:17となります。
  * colsはプラグインパラメータで変更が可能です。
  * 
+ * blockTypeでブロックの種類を指定します。
+ * 重ね置きはgroundが最下層でその上にfloor、その上にplant、furniture、wallが
+ * 置けるようになります。
+ * 現在このブロックの種別は固定で今後変更可能になるかもしれません。
+ * また、成長するブロックはblockTypeをplantに指定してください。
+ * 
+ * sizeはsize:[1,2]とあれば横1、縦2となります。
+ * 
  * <tileOffsets1:>と<tileOffsets2:>は成長前と成長後に
  * どのマスにどのtileIdを表示するかの指定、
  * passableはtrueで通行可能、falseで通行不可能の指定が可能です。
- * blockZはunderでプレイヤーより下層、overでプレイヤーより上層に
+ * blockZは基本的に、underでプレイヤーより下層、overでプレイヤーより上層に
  * 表示されるようになります。
+ * ブロックの重ね置きは各blockType別にこのunderのsprite.zを変化させることにより
+ * 表示順を制御しています。
  * 
  * growthTimeはブロックが成長するまでの時間で、
  * 0の場合は成長しない普通のブロックとなります。
@@ -118,10 +127,13 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
  * 各タイルセットのtileIdを知りたい場合は、別ファイルの
  * TileID計算ツール.htmlを使うと楽になるかもしれません。
  * 
- * ▼ ツール（武器）のメタタグ例（tool指定と破壊対象のtileId）
- * （今後、ブロック種別などの実装予定）
- * <tool>
- * <blockEffective:[1,2,3]>
+ * ▼ ツール（武器）のメタタグ例（tool指定と破壊対象のブロック種別）
+ * （今後、blockPowerの実装予定）
+```
+<tool>
+<blockEffective:["furniture","wall","floor"]>
+```
+ *
  *
  * ▼ 使用例：スクリプトからブロックを設置・破壊
  * window.RSTH_IH.SurvivalBlockManager.place(x, y, itemId)
@@ -134,6 +146,16 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
  * ----------------------------
  * 変更履歴:
  * ----------------------------
+ * 
+ * Ver.1.0.9 - 2025/06/05
+ *     インベントリ、ホットバーからの装備処理を修正。
+ *     ブロックに重ね置きの概念を追加した。
+ *     ドロップアイテムをスタック可能にした。
+ *     ドロップアイテムを拾うときに吸い込む動作を追加した。
+ *     インベントリ、ホットバーからアイテムをマップ上にD&Dできるようにした。
+ *     toolの破壊可能なブロックの指定をブロックの種類に変更した。
+ *     ブロックを設置できるアイテムをホットバーで選択している場合、
+ *     マップ画面上でそのブロックのゴーストを表示可能とした。
  * 
  * Ver.1.0.8 - 2025/06/03
  *     色々な機能を追加。
@@ -173,7 +195,7 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
 
 ## スクリーンショット
 
-![プラグイン動作イメージ](./images/demo_ui2.png)
+![プラグイン動作イメージ](./images/demo_ui3.png)
 
 ## 動画デモ
 
