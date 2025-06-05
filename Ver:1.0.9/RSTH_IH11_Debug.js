@@ -16,7 +16,7 @@
     const RSTH_DEBUG_LOG = false;
 
     //const SHOW_FPS = true;
-    const showFps = false;
+    const SHOW_FPS = false;
 
     // 現在マップ上に配置されているブロックとブロックスプライトの一覧をコンソール表示
     window.RSTH_IH.getBlocks_and_Spriteslist = function (call) {
