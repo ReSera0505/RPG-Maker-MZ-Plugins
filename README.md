@@ -1,4 +1,4 @@
-# RSTH RPG Maker MZ Plugins(Ver:1.0.10)
+# RSTH RPG Maker MZ Plugins(Ver:1.0.11)
 
 RPGツクールMZ向けのサバイバル・クラフト・インベントリ・装備UIの統合プラグインセットです。
 ただし、まだ作成中のため、正常に動く保証はありません。
@@ -66,6 +66,7 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
  * RSTH_IH03_Gain.js
  * RSTH_IH04_Handle.js
  * RSTH_IH05_Window.js
+ * RSTH_IH05_Window_02.js
  * RSTH_IH06_UseItem.js
  * RSTH_IH07_Block_dropitem.js
  * RSTH_IH08_Block_Main.js
@@ -85,17 +86,17 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
 <blockName:木>
 <blockType:plant>
 <blockHP:9>
-<autoTile:false>
+<autoTile:true>
 <autoTileRow:0>
 <size:[1,2]>
 <tileset:Tl_Outside_B>
 <tileOffsets1:[
-  {"dx":0,"dy":0,"tileId":1,"passable":true,"blockZ":"under"},
-  {"dx":0,"dy":1,"tileId":60,"passable":false,"blockZ":"under"}
+{"dx":0,"dy":0,"tileId":1,"passable":true,"blockZ":"under"},
+{"dx":0,"dy":1,"tileId":60,"passable":false,"blockZ":"under"}
 ]>
 <tileOffsets2:[
-  {"dx":0,"dy":0,"tileId":76,"passable":true,"blockZ":"over"},
-  {"dx":0,"dy":1,"tileId":92,"passable":false,"blockZ":"under"}
+{"dx":0,"dy":0,"tileId":76,"passable":true,"blockZ":"over"},
+{"dx":0,"dy":1,"tileId":92,"passable":false,"blockZ":"under"}
 ]>
 <growthTime:200>
 <dropItems1:itemId:52,amount:1>
@@ -131,11 +132,35 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
  * TileID計算ツール.htmlを使うと楽になるかもしれません。
  * 
  * autoTileはtrueにするとオートタイルのブロックを設置します。
- * autoTileRow:0の数字はオートタイルの画像の何行目のタイルを使うかを指定します。
+ * autoTileRowの数字はオートタイルの画像の何行目のタイルを使うかを指定します。
  * オートタイルはタイルサイズ48x48を16パターン横一列に並べた画像を用意してください。
  * 各タイルに対応する結合パターンは以下の通り。
 単体,上,下,上下,左,上左,下左,上下左,
 右,上右,下右,上下右,左右,上左右,下左右,全方向
+ * 
+ * ブロックのタイプをchestにするとそのブロックは収納ができるチェストになります。
+```
+<blockType:chest>
+<chestsize:[10,6]>
+```
+ * 上のタグを設定すると横10縦6のサイズでアイテム類の収納ができるチェストとなります。
+ * 中身の入っているチェストブロックを破壊するとその中身がすべてドロップします。
+ * 
+ * ブロックのタイプをworkbenchにするとそのブロックはアイテム作成ができる作業台になります。
+ * アイテム作成に使うレシピは、プレイヤーキャラクターが覚えているスキルの
+ * メモ欄の以下のようなメタタグで設定します。
+```
+<itemId:7>
+<resultCount:1>
+<ingredients:[
+  {"id": 150, "count": 1},
+  {"id": 151, "count": 1}
+]>
+```
+ * itemIdは作成するアイテムのid、resultCountは一度に作成する個数、
+ * ingredientsは材料にするアイテムのidとその数を指定します。
+ * アイテムを作成するにはこういうメタタグがあるスキルを習得する必要があります。
+ * 今のところアイテムが作れるだけです。武具については今後他で実装予定。
  * 
  * ▼ ツール（武器）のメタタグ例
  * （tool指定とブロックへの攻撃力と破壊対象のブロック種別）
@@ -157,6 +182,10 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
  * ----------------------------
  * 変更履歴:
  * ----------------------------
+ * 
+ * Ver.1.0.11 - 2025/06/09
+ *     チェストブロックを追加。
+ *     作業台ブロックを追加。
  * 
  * Ver.1.0.10 - 2025/06/07
  *     ブロックにHP、toolにブロックへの攻撃力を追加。
@@ -213,7 +242,7 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
 
 ## スクリーンショット
 
-![プラグイン動作イメージ](./images/demo_ui4.png)
+![プラグイン動作イメージ](./images/demo_ui5.png)
 
 ## 動画デモ
 
