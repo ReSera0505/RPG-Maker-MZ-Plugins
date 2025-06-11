@@ -59,6 +59,7 @@ RPGツクールMZ向けのサバイバル・クラフト・インベントリ・
  * ▼ 使用方法
  * プロジェクトの「js/plugins」フォルダに以下の順で全てのファイルを追加し、
  * プラグインマネージャーから全て有効にしてください。
+```
 RSTH_IH01_Core.js
 RSTH_IH02_Util_01.js
 RSTH_IH02_Util_02.js
@@ -76,6 +77,8 @@ RSTH_IH06_Block_03_grow.js
 RSTH_IH10_SaveLoad.js
 RSTH_IH11_Debug.js
 RSTH_IH12_EventHelper.js
+
+```
  * 
  * マップ画面で "E" キーを押すとインベントリと装備ウィンドウが開閉します。
  * 
